@@ -67,13 +67,23 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
     fun reset() {
         if (!sized) return
         trail.clear()
-        val cx = width / 2f
-        val cy = height * 0.62f
+        val landscape = width >= height
         val n = (initialBodyLength / sampleSpacing).toInt()
-        for (i in n downTo 0) {
-            trail.addLast(PointF(cx, cy + i * sampleSpacing))
+        if (landscape) {
+            val cx = width * 0.32f
+            val cy = height * 0.5f
+            for (i in n downTo 0) {
+                trail.addLast(PointF(cx - i * sampleSpacing, cy))
+            }
+            heading = 0f
+        } else {
+            val cx = width / 2f
+            val cy = height * 0.62f
+            for (i in n downTo 0) {
+                trail.addLast(PointF(cx, cy + i * sampleSpacing))
+            }
+            heading = -PI.toFloat() / 2f
         }
-        heading = -PI.toFloat() / 2f
         targetHeading = heading
         hasTarget = false
         bodyLength = initialBodyLength

@@ -9,7 +9,7 @@
     <color name="accent">#4ADE80</color>
     <color name="accent_bright">#7CFFB2</color>
     <color name="food">#F472B6</color>
-    <color name="chip_fill">#0DFFFFFF</color>
-    <color name="chip_stroke">#1AFFFFFF</color>
-    <color name="icon_btn_fill">#14FFFFFF</color>
+    <color name="chip_fill">#1FFFFFFF</color>
+    <color name="chip_stroke">#26FFFFFF</color>
+    <color name="icon_btn_fill">#1FFFFFFF</color>
 </resources>

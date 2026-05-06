@@ -3,6 +3,11 @@ package com.example.snake
 import android.content.Context
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.updatePadding
 import com.example.snake.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity(), SnakeView.Listener {
@@ -15,12 +20,35 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+
+        // Push play area + floating UI into the safe area defined by display
+        // cutouts. We deliberately ignore the system-bar insets so transient
+        // swipes-to-show don't reflow the layout mid-game.
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
+            val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            v.updatePadding(cutout.left, cutout.top, cutout.right, cutout.bottom)
+            insets
+        }
+
         bestScore = getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_BEST, 0)
         binding.bestText.text = bestScore.toString()
 
         binding.snakeView.listener = this
         binding.pauseBtn.setOnClickListener { binding.snakeView.togglePause() }
         binding.restartBtn.setOnClickListener { binding.snakeView.restart() }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     override fun onPause() {

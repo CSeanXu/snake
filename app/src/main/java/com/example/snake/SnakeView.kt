@@ -69,12 +69,6 @@ class SnakeView @JvmOverloads constructor(
     private var pointerId = MotionEvent.INVALID_POINTER_ID
 
     // ---------- paints ----------
-    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = dp(1.5f)
-        color = 0x14FFFFFF
-    }
     private val pathPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -94,7 +88,6 @@ class SnakeView @JvmOverloads constructor(
 
     private val bodyPath = Path()
     private val viewRect = RectF()
-    private val cornerRadius = dp(20f)
 
     init {
         isClickable = true
@@ -223,20 +216,10 @@ class SnakeView @JvmOverloads constructor(
 
     // ---------- rendering ----------
     override fun onDraw(canvas: Canvas) {
-        drawPlayfield(canvas)
-        canvas.save()
-        canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
         drawFood(canvas)
         drawSnake(canvas)
-        canvas.restore()
         drawJoystick(canvas)
         drawOverlay(canvas)
-    }
-
-    private fun drawPlayfield(c: Canvas) {
-        bgPaint.color = 0xFF0F1320.toInt()
-        c.drawRoundRect(viewRect, cornerRadius, cornerRadius, bgPaint)
-        c.drawRoundRect(viewRect, cornerRadius, cornerRadius, borderPaint)
     }
 
     private fun drawFood(c: Canvas) {
@@ -346,7 +329,7 @@ class SnakeView @JvmOverloads constructor(
             GameState.RUNNING -> return
         }
         overlayPaint.color = 0xB30A0E14.toInt()
-        c.drawRoundRect(viewRect, cornerRadius, cornerRadius, overlayPaint)
+        c.drawRect(viewRect, overlayPaint)
         val cx = width / 2f
         val cy = height / 2f
         c.drawText(title, cx, cy, titlePaint)
