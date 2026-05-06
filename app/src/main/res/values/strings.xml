@@ -4,7 +4,6 @@
     <string name="score_label">SCORE</string>
     <string name="best_label">BEST</string>
     <string name="length_label">LEN</string>
-    <string name="brand_mark">SNAKE · FREE</string>
     <string name="pause">暂停</string>
     <string name="resume">继续</string>
     <string name="restart">重新开始</string>
