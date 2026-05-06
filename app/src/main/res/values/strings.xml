@@ -20,4 +20,12 @@
     <string name="skin_mint">薄荷皮肤</string>
     <string name="skin_candy">糖果皮肤</string>
     <string name="skin_paper">极简皮肤</string>
+    <string name="skin_section">皮肤</string>
+    <string name="skin_mint_label">薄荷</string>
+    <string name="skin_candy_label">糖果</string>
+    <string name="skin_paper_label">极简</string>
+    <string name="gameplay_section">玩法</string>
+    <string name="wrap_label">边缘穿越</string>
+    <string name="wrap_hint">撞到边缘从对面穿出，不结束</string>
+    <string name="done">完成</string>
 </resources>

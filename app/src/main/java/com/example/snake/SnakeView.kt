@@ -39,6 +39,11 @@ class SnakeView @JvmOverloads constructor(
     /** Active snake skin. Replace via the property; the next frame picks it up. */
     var skin: SnakeSkin = SnakeSkin.MINT
 
+    /** When true, the snake passes through edges to the opposite side. */
+    var wrapEnabled: Boolean
+        get() = game.wrapEnabled
+        set(value) { game.wrapEnabled = value }
+
     val state: GameState get() = game.state
     val score: Int get() = game.score
     val length: Int get() = game.trail.size

@@ -46,6 +46,11 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
     var width: Float = 0f; private set
     var height: Float = 0f; private set
 
+    /** When true, the head wraps from one edge to the opposite edge instead
+     *  of ending the run. Self-collision still applies. Body trail keeps
+     *  raw coordinates; the renderer handles the visual discontinuity. */
+    var wrapEnabled: Boolean = false
+
     val trail: ArrayDeque<PointF> = ArrayDeque()
 
     var heading: Float = -PI.toFloat() / 2f
@@ -192,12 +197,18 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
 
         val outBounds = nx < bodyRadius || nx > width - bodyRadius ||
             ny < bodyRadius || ny > height - bodyRadius
-        if (outBounds && !isShielded) {
+        val cx: Float
+        val cy: Float
+        if (wrapEnabled) {
+            cx = wrapCoord(nx, width)
+            cy = wrapCoord(ny, height)
+        } else if (outBounds && !isShielded) {
             state = GameState.OVER
             return
+        } else {
+            cx = nx.coerceIn(bodyRadius, width - bodyRadius)
+            cy = ny.coerceIn(bodyRadius, height - bodyRadius)
         }
-        val cx = nx.coerceIn(bodyRadius, width - bodyRadius)
-        val cy = ny.coerceIn(bodyRadius, height - bodyRadius)
 
         trail.addLast(PointF(cx, cy))
         trimTrail()
@@ -273,9 +284,7 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
         for (i in trail.size - 1 downTo 1) {
             val a = trail[i]
             val b = trail[i - 1]
-            val dx = a.x - b.x
-            val dy = a.y - b.y
-            acc += sqrt(dx * dx + dy * dy)
+            acc += segmentLen(a.x - b.x, a.y - b.y)
             if (acc >= bodyLength) {
                 dropBefore = i - 1
                 break
@@ -294,15 +303,40 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
         for (i in trail.size - 2 downTo 0) {
             val a = trail[i + 1]
             val b = trail[i]
-            val sx = a.x - b.x
-            val sy = a.y - b.y
-            acc += sqrt(sx * sx + sy * sy)
+            acc += segmentLen(a.x - b.x, a.y - b.y)
             if (acc < safeSkipPx) continue
-            val ex = b.x - hx
-            val ey = b.y - hy
+            val ex = wrapDelta(b.x - hx, width)
+            val ey = wrapDelta(b.y - hy, height)
             if (ex * ex + ey * ey < collideR2) return true
         }
         return false
+    }
+
+    /** Arc length of one trail segment, accounting for wrap teleports. */
+    private fun segmentLen(dx: Float, dy: Float): Float {
+        val ax = if (wrapEnabled) wrapDelta(dx, width) else dx
+        val ay = if (wrapEnabled) wrapDelta(dy, height) else dy
+        return sqrt(ax * ax + ay * ay)
+    }
+
+    /** Signed delta in [-max/2, max/2], so a delta near `max` becomes a small
+     *  negative value (wrap-aware "shortest path" between two coordinates). */
+    private fun wrapDelta(d: Float, max: Float): Float {
+        if (!wrapEnabled || max <= 0f) return d
+        var v = d
+        val half = max / 2f
+        while (v > half) v -= max
+        while (v < -half) v += max
+        return v
+    }
+
+    /** Wrap a coordinate into [0, max). */
+    private fun wrapCoord(v: Float, max: Float): Float {
+        if (max <= 0f) return v
+        var r = v
+        while (r < 0f) r += max
+        while (r >= max) r -= max
+        return r
     }
 
     private fun findFoodSpot(): Pair<Float, Float>? {

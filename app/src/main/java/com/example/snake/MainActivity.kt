@@ -1,6 +1,10 @@
 package com.example.snake
 
+import android.app.AlertDialog
 import android.content.Context
+import android.content.SharedPreferences
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
@@ -13,16 +17,21 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.updatePadding
 import com.example.snake.databinding.ActivityMainBinding
+import com.example.snake.databinding.DialogSettingsBinding
 import java.text.NumberFormat
 import java.util.Locale
 
 class MainActivity : AppCompatActivity(), SnakeView.Listener {
 
     private lateinit var binding: ActivityMainBinding
+    private val prefs: SharedPreferences by lazy {
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    }
     private var bestScore: Int = 0
     private val scoreFormat = NumberFormat.getIntegerInstance(Locale.US)
     private val density: Float by lazy { resources.displayMetrics.density }
     private var activeSkinKey: String = SnakeSkin.MINT.key
+    private var settingsDialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,44 +50,71 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
             insets
         }
 
-        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         bestScore = prefs.getInt(KEY_BEST, 0)
         binding.bestText.text = formatScore(bestScore)
 
         binding.snakeView.listener = this
-        binding.settingsBtn.setOnClickListener { binding.snakeView.togglePause() }
+        binding.pauseBtn.setOnClickListener { binding.snakeView.togglePause() }
+        binding.settingsBtn.setOnClickListener { openSettingsDialog() }
 
-        // Wire skin selector
-        val saved = prefs.getString(KEY_SKIN, SnakeSkin.MINT.key)
-        applySkin(SnakeSkin.byKey(saved), persist = false)
-        bindSkinSwatch(binding.skinA, SnakeSkin.MINT)
-        bindSkinSwatch(binding.skinB, SnakeSkin.CANDY)
-        bindSkinSwatch(binding.skinC, SnakeSkin.PAPER)
+        // Load persisted preferences and apply to the live game.
+        activeSkinKey = prefs.getString(KEY_SKIN, SnakeSkin.MINT.key) ?: SnakeSkin.MINT.key
+        binding.snakeView.skin = SnakeSkin.byKey(activeSkinKey)
+        binding.snakeView.wrapEnabled = prefs.getBoolean(KEY_WRAP, false)
     }
 
-    private fun bindSkinSwatch(view: View, skin: SnakeSkin) {
-        view.setOnClickListener { applySkin(skin) }
-        renderSwatch(view, skin)
+    private fun openSettingsDialog() {
+        // Pause the game while the dialog is open so the snake doesn't run
+        // into a wall behind the modal.
+        binding.snakeView.pauseIfRunning()
+
+        val dlgBinding = DialogSettingsBinding.inflate(layoutInflater)
+        val dialog = AlertDialog.Builder(this).setView(dlgBinding.root).create()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        settingsDialog = dialog
+
+        // Skin swatches inside the dialog
+        bindDialogSwatch(dlgBinding.dlgSkinAGroup, dlgBinding.dlgSkinA, SnakeSkin.MINT)
+        bindDialogSwatch(dlgBinding.dlgSkinBGroup, dlgBinding.dlgSkinB, SnakeSkin.CANDY)
+        bindDialogSwatch(dlgBinding.dlgSkinCGroup, dlgBinding.dlgSkinC, SnakeSkin.PAPER)
+
+        // Wrap-around toggle
+        dlgBinding.wrapSwitch.isChecked = binding.snakeView.wrapEnabled
+        dlgBinding.wrapSwitch.setOnCheckedChangeListener { _, checked ->
+            binding.snakeView.wrapEnabled = checked
+            prefs.edit().putBoolean(KEY_WRAP, checked).apply()
+        }
+
+        dlgBinding.dlgClose.setOnClickListener { dialog.dismiss() }
+
+        dialog.show()
     }
 
-    private fun applySkin(skin: SnakeSkin, persist: Boolean = true) {
+    private fun bindDialogSwatch(group: View, swatch: View, skin: SnakeSkin) {
+        renderDialogSwatch(swatch, skin)
+        group.setOnClickListener {
+            applySkin(skin)
+            // re-render this dialog's swatches so the active ring follows
+            (settingsDialog?.findViewById<View>(R.id.dlgSkinA))?.let {
+                renderDialogSwatch(it, SnakeSkin.MINT)
+            }
+            (settingsDialog?.findViewById<View>(R.id.dlgSkinB))?.let {
+                renderDialogSwatch(it, SnakeSkin.CANDY)
+            }
+            (settingsDialog?.findViewById<View>(R.id.dlgSkinC))?.let {
+                renderDialogSwatch(it, SnakeSkin.PAPER)
+            }
+        }
+    }
+
+    private fun renderDialogSwatch(view: View, skin: SnakeSkin) {
+        view.background = makeSwatch(skin.swatch, skin.key == activeSkinKey)
+    }
+
+    private fun applySkin(skin: SnakeSkin) {
         activeSkinKey = skin.key
         binding.snakeView.skin = skin
-        if (persist) {
-            getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_SKIN, skin.key)
-                .apply()
-        }
-        // re-render all swatches so the active ring follows the selection
-        renderSwatch(binding.skinA, SnakeSkin.MINT)
-        renderSwatch(binding.skinB, SnakeSkin.CANDY)
-        renderSwatch(binding.skinC, SnakeSkin.PAPER)
-    }
-
-    private fun renderSwatch(view: View, skin: SnakeSkin) {
-        val selected = skin.key == activeSkinKey
-        view.background = makeSwatch(skin.swatch, selected)
+        prefs.edit().putString(KEY_SKIN, skin.key).apply()
     }
 
     /** A flat colored circle, with an outer ring + inner inset when selected. */
@@ -115,6 +151,8 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
     override fun onPause() {
         super.onPause()
         binding.snakeView.pauseIfRunning()
+        settingsDialog?.takeIf { it.isShowing }?.dismiss()
+        settingsDialog = null
     }
 
     override fun onStateChanged(state: GameState, score: Int) {
@@ -124,10 +162,7 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
         if (state == GameState.OVER && score > bestScore) {
             bestScore = score
             binding.bestText.text = formatScore(bestScore)
-            getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit()
-                .putInt(KEY_BEST, bestScore)
-                .apply()
+            prefs.edit().putInt(KEY_BEST, bestScore).apply()
         }
     }
 
@@ -137,5 +172,6 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
         private const val PREFS = "snake_prefs"
         private const val KEY_BEST = "best_score"
         private const val KEY_SKIN = "skin_key"
+        private const val KEY_WRAP = "wrap_enabled"
     }
 }
