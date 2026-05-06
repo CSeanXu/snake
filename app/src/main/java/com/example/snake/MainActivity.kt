@@ -43,7 +43,6 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
 
         binding.snakeView.listener = this
         binding.settingsBtn.setOnClickListener { binding.snakeView.togglePause() }
-        binding.restartBtn.setOnClickListener { binding.snakeView.restart() }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

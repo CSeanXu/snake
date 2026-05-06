@@ -10,16 +10,13 @@ import kotlin.random.Random
 
 enum class GameState { READY, RUNNING, PAUSED, OVER }
 
+/** Bouncing +N (or shield burst when value < 0) marker the renderer animates. */
+data class ScorePopup(val x: Float, val y: Float, val value: Int, val spawnTime: Float)
+
 /**
- * Continuous (non-grid) snake physics.
- *
- * The snake is a chain of head positions sampled once per tick. The chain is
- * trimmed from the tail end so its accumulated arc length matches the desired
- * body length, which grows when the head reaches food.
- *
- * The head turns by at most [maxTurnRate] radians per tick, which both gives
- * the FPS-joystick feel and prevents the snake from instantly reversing onto
- * itself.
+ * Continuous (non-grid) snake physics with time-based dash / shield /
+ * combo systems. The view feeds in real dt seconds so cooldown timers
+ * track wall clock instead of variable frame rate.
  */
 class GameLogic(density: Float, private val random: Random = Random.Default) {
 
@@ -28,7 +25,7 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
 
     private val speedInitial: Float = 1.6f * density
     private val speedMax: Float = 3.2f * density
-    private val speedRamp: Float = 0.02f * density
+    private val speedRamp: Float = 0.005f * density
     private val maxTurnRate: Float = 0.085f
     private val initialBodyLength: Float = 70f * density
     private val growthPerFood: Float = 16f * density
@@ -46,12 +43,51 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
 
     var foodX: Float = 0f; private set
     var foodY: Float = 0f; private set
+    /** True when the next food on the field is a shield power-up rather than a normal orb. */
+    var foodIsShield: Boolean = false; private set
 
     var score: Int = 0; private set
     var state: GameState = GameState.READY; private set
 
     private var bodyLength: Float = initialBodyLength
     private var sized: Boolean = false
+
+    // ---------- time-based state ----------
+    /** Wall-clock-ish time accumulator since reset() (seconds). */
+    var time: Float = 0f; private set
+
+    private var dashEndTime: Float = -1f
+    private var dashCooldownUntil: Float = 0f
+    val dashDuration: Float = 1.4f
+    val dashCooldown: Float = 4.2f
+    private val dashSpeedMul: Float = 1.85f
+
+    private var shieldEndTime: Float = -1f
+    val shieldDuration: Float = 4f
+
+    private var lastFoodEatTime: Float = -100f
+    val comboWindow: Float = 3f
+    var combo: Int = 0; private set
+
+    private var normalFoodsSinceShield: Int = 0
+    private val shieldFoodEvery: Int = 5
+
+    val popups: ArrayDeque<ScorePopup> = ArrayDeque()
+    val popupDuration: Float = 0.9f
+
+    // ---------- queries ----------
+    val isDashing: Boolean get() = time < dashEndTime
+    val dashReady: Boolean get() = time >= dashCooldownUntil
+    /** 0 = just used, 1 = ready. */
+    val dashCooldownProgress: Float get() {
+        if (dashReady) return 1f
+        val total = dashDuration + dashCooldown
+        val remain = (dashCooldownUntil - time).coerceAtLeast(0f)
+        return (1f - remain / total).coerceIn(0f, 1f)
+    }
+    val isShielded: Boolean get() = time < shieldEndTime
+    val shieldRemaining: Float get() = (shieldEndTime - time).coerceAtLeast(0f)
+    val comboTimeRemaining: Float get() = (comboWindow - (time - lastFoodEatTime)).coerceAtLeast(0f)
 
     val headX: Float get() = if (trail.isNotEmpty()) trail.last().x else 0f
     val headY: Float get() = if (trail.isNotEmpty()) trail.last().y else 0f
@@ -67,6 +103,7 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
     fun reset() {
         if (!sized) return
         trail.clear()
+        popups.clear()
         val landscape = width >= height
         val n = (initialBodyLength / sampleSpacing).toInt()
         if (landscape) {
@@ -89,6 +126,14 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
         bodyLength = initialBodyLength
         score = 0
         state = GameState.READY
+        time = 0f
+        dashEndTime = -1f
+        dashCooldownUntil = 0f
+        shieldEndTime = -1f
+        lastFoodEatTime = -100f
+        combo = 0
+        normalFoodsSinceShield = 0
+        foodIsShield = false
         spawnFood()
     }
 
@@ -110,43 +155,87 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
         hasTarget = false
     }
 
-    fun tick() {
+    /** Returns true if a dash actually started this call. */
+    fun triggerDash(): Boolean {
+        if (state != GameState.RUNNING) return false
+        if (!dashReady) return false
+        dashEndTime = time + dashDuration
+        dashCooldownUntil = dashEndTime + dashCooldown
+        return true
+    }
+
+    fun tick(dt: Float) {
         if (state != GameState.RUNNING || trail.isEmpty()) return
+        time += dt
 
         if (hasTarget) {
             var delta = targetHeading - heading
             while (delta > PI) delta -= 2f * PI.toFloat()
             while (delta < -PI) delta += 2f * PI.toFloat()
-            heading += delta.coerceIn(-maxTurnRate, maxTurnRate)
+            // dashing widens the turn rate slightly so the boost isn't unsteerable
+            val turnRate = if (isDashing) maxTurnRate * 1.35f else maxTurnRate
+            heading += delta.coerceIn(-turnRate, turnRate)
         }
 
         val speed = currentSpeed()
         val nx = headX + cos(heading) * speed
         val ny = headY + sin(heading) * speed
 
-        if (nx < bodyRadius || nx > width - bodyRadius ||
+        val outBounds = nx < bodyRadius || nx > width - bodyRadius ||
             ny < bodyRadius || ny > height - bodyRadius
-        ) {
+        if (outBounds && !isShielded) {
+            state = GameState.OVER
+            return
+        }
+        // shield clamps the head against the wall instead of ending the run
+        val cx = nx.coerceIn(bodyRadius, width - bodyRadius)
+        val cy = ny.coerceIn(bodyRadius, height - bodyRadius)
+
+        trail.addLast(PointF(cx, cy))
+        trimTrail()
+
+        val dxFood = cx - foodX
+        val dyFood = cy - foodY
+        val foodHit = bodyRadius + foodRadius - 2f
+        if (dxFood * dxFood + dyFood * dyFood < foodHit * foodHit) {
+            consumeFood()
+        }
+
+        if (!isShielded && selfCollision()) {
             state = GameState.OVER
             return
         }
 
-        trail.addLast(PointF(nx, ny))
-        trimTrail()
+        if (combo > 0 && time - lastFoodEatTime > comboWindow) combo = 0
 
-        val dxFood = nx - foodX
-        val dyFood = ny - foodY
-        val foodHit = bodyRadius + foodRadius - 2f
-        if (dxFood * dxFood + dyFood * dyFood < foodHit * foodHit) {
-            score += 1
-            bodyLength += growthPerFood
-            spawnFood()
+        while (popups.isNotEmpty() && time - popups.first().spawnTime > popupDuration) {
+            popups.removeFirst()
         }
-
-        if (selfCollision()) state = GameState.OVER
     }
 
-    private fun currentSpeed(): Float = min(speedInitial + score * speedRamp, speedMax)
+    private fun consumeFood() {
+        if (foodIsShield) {
+            shieldEndTime = time + shieldDuration
+            popups.addLast(ScorePopup(foodX, foodY, -1, time)) // -1 → shield burst marker
+            foodIsShield = false
+            normalFoodsSinceShield = 0
+        } else {
+            combo = if (time - lastFoodEatTime <= comboWindow) (combo + 1).coerceAtMost(99) else 1
+            lastFoodEatTime = time
+            val gain = 10 + (combo - 1) * 5
+            score += gain
+            popups.addLast(ScorePopup(foodX, foodY, gain, time))
+            bodyLength += growthPerFood
+            normalFoodsSinceShield += 1
+            if (normalFoodsSinceShield >= shieldFoodEvery) foodIsShield = true
+        }
+        spawnFood()
+    }
+
+    private fun currentSpeed(): Float {
+        val base = min(speedInitial + score * speedRamp, speedMax)
+        return if (isDashing) base * dashSpeedMul else base
+    }
 
     private fun trimTrail() {
         var acc = 0f
@@ -166,8 +255,6 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
     }
 
     private fun selfCollision(): Boolean {
-        // Skip the segment of the body adjacent to the head; tight U-turns can
-        // legitimately bring the neck very close without "hitting" itself.
         val safeSkipPx = bodyRadius * 5f
         val collideRadius = bodyRadius * 1.55f
         val collideR2 = collideRadius * collideRadius

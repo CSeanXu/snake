@@ -20,7 +20,6 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 class SnakeView @JvmOverloads constructor(
     context: Context,
@@ -45,11 +44,15 @@ class SnakeView @JvmOverloads constructor(
     private val choreographer = Choreographer.getInstance()
     private var lastReportedState: GameState? = null
     private var lastReportedScore: Int = -1
+    private var lastFrameNanos: Long = 0L
 
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
+            val dt = if (lastFrameNanos == 0L) 0f
+                else min(0.05f, (frameTimeNanos - lastFrameNanos) / 1_000_000_000f)
+            lastFrameNanos = frameTimeNanos
             timeSeconds = (frameTimeNanos - bootNanos) / 1_000_000_000f
-            if (game.state == GameState.RUNNING) game.tick()
+            if (game.state == GameState.RUNNING) game.tick(dt)
 
             val target = if (joystickActive) 1f else 0f
             joystickAlpha += (target - joystickAlpha) * 0.25f
@@ -70,10 +73,14 @@ class SnakeView @JvmOverloads constructor(
     private var joyAnchorY = 0f
     private var joyStickX = 0f
     private var joyStickY = 0f
-
     private val joystickRadius = dp(56f)
     private val joystickDeadzone = dp(8f)
     private var pointerId = MotionEvent.INVALID_POINTER_ID
+
+    // ---------- dash button ----------
+    private val dashOuterR = dp(34f)
+    private val dashRingR = dp(38f)
+    private val dashHitR = dp(48f)
 
     // ---------- paints ----------
     private val pathPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -93,9 +100,23 @@ class SnakeView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
+    /** Dedicated paint for HUD/popup text so we don't clobber title/sub state mid-frame. */
+    private val hudTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
+    private val hudStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+        style = Paint.Style.FILL_AND_STROKE
+        strokeJoin = Paint.Join.ROUND
+    }
 
     private val viewRect = RectF()
+    private val arcRect = RectF()
     private val tonguePath = Path()
+    private val boltPath = Path()
+    private val shieldIconPath = Path()
 
     init {
         isClickable = true
@@ -154,6 +175,7 @@ class SnakeView @JvmOverloads constructor(
     }
 
     private fun onTouchDown(x: Float, y: Float) {
+        val wasOver = game.state == GameState.OVER
         when (game.state) {
             GameState.OVER -> {
                 game.reset()
@@ -162,11 +184,27 @@ class SnakeView @JvmOverloads constructor(
             GameState.READY, GameState.PAUSED -> game.start()
             GameState.RUNNING -> {}
         }
+        // tap on dash button → trigger dash, do not engage joystick
+        if (!wasOver && game.state == GameState.RUNNING && touchInDash(x, y)) {
+            game.triggerDash()
+            performClick()
+            return
+        }
         joystickActive = true
         joyAnchorX = x; joyAnchorY = y
         joyStickX = x; joyStickY = y
         performClick()
     }
+
+    private fun touchInDash(x: Float, y: Float): Boolean {
+        val cx = dashCenterX()
+        val cy = dashCenterY()
+        val dx = x - cx; val dy = y - cy
+        return dx * dx + dy * dy <= dashHitR * dashHitR
+    }
+
+    private fun dashCenterX(): Float = dp(56f)
+    private fun dashCenterY(): Float = (height - dp(108f)).coerceAtLeast(dp(140f))
 
     private fun onTouchMove(x: Float, y: Float) {
         var dx = x - joyAnchorX
@@ -233,6 +271,10 @@ class SnakeView @JvmOverloads constructor(
         drawTrailParticles(canvas)
         drawFood(canvas)
         drawSnake(canvas)
+        drawScorePopups(canvas)
+        drawComboBanner(canvas)
+        drawShieldPill(canvas)
+        drawDashButton(canvas)
         drawJoystick(canvas)
         drawOverlay(canvas)
     }
@@ -245,11 +287,7 @@ class SnakeView @JvmOverloads constructor(
         drawBackgroundPattern(c, width.toFloat(), height.toFloat())
     }
 
-    /** Dense fine grid (main lines + sub-grid) + warm corner glow.
-     * Background gradient comes from the parent ConstraintLayout drawable
-     * so we leave the bitmap transparent under the lines. */
     private fun drawBackgroundPattern(c: Canvas, canvasWidth: Float, canvasHeight: Float) {
-        // sub-grid: 5dp pitch, very faint
         val sub = dp(5f)
         pathPaint.style = Paint.Style.STROKE
         pathPaint.strokeWidth = max(0.5f, dp(0.5f))
@@ -265,7 +303,6 @@ class SnakeView @JvmOverloads constructor(
             y += sub
         }
 
-        // main grid: 20dp pitch
         val main = dp(20f)
         pathPaint.strokeWidth = max(0.7f, dp(0.8f))
         pathPaint.color = COLOR_GRID
@@ -280,7 +317,6 @@ class SnakeView @JvmOverloads constructor(
             y += main
         }
 
-        // warm corner highlight (top-right by default; right side in landscape too)
         val gx = canvasWidth * 0.72f
         val gy = canvasHeight * 0.18f
         val gr = max(canvasWidth, canvasHeight) * 0.55f
@@ -295,31 +331,43 @@ class SnakeView @JvmOverloads constructor(
         c.drawRect(0f, 0f, canvasWidth, canvasHeight, glowPaint)
     }
 
-    /** Apricot energy orb with layered glow halos. */
+    /** Apricot orb for normal food, blue shield orb when foodIsShield is set. */
     private fun drawFood(c: Canvas) {
         val pulse = 1f + 0.08f * sin(timeSeconds * 4f)
         val r = game.foodRadius * pulse
         val x = game.foodX
         val y = game.foodY
 
-        fillPaint.color = colorAlpha(COLOR_FOOD_GLOW, 0.18f)
-        c.drawCircle(x, y, r * 2.4f, fillPaint)
-        fillPaint.color = colorAlpha(COLOR_FOOD_GLOW, 0.32f)
-        c.drawCircle(x, y, r * 1.5f, fillPaint)
-
-        fillPaint.color = COLOR_FOOD
-        c.drawCircle(x, y, r, fillPaint)
-
-        // sheen highlight
-        fillPaint.color = colorAlpha(Color.WHITE, 0.7f)
-        c.drawCircle(x - r * 0.3f, y - r * 0.35f, r * 0.32f, fillPaint)
+        if (game.foodIsShield) {
+            fillPaint.color = colorAlpha(COLOR_SHIELD_GLOW, 0.20f)
+            c.drawCircle(x, y, r * 2.6f, fillPaint)
+            fillPaint.color = colorAlpha(COLOR_SHIELD_GLOW, 0.34f)
+            c.drawCircle(x, y, r * 1.6f, fillPaint)
+            fillPaint.color = COLOR_SHIELD
+            c.drawCircle(x, y, r, fillPaint)
+            fillPaint.color = colorAlpha(Color.WHITE, 0.7f)
+            c.drawCircle(x - r * 0.3f, y - r * 0.35f, r * 0.32f, fillPaint)
+            // shield ring inside
+            pathPaint.style = Paint.Style.STROKE
+            pathPaint.strokeWidth = dp(1.4f)
+            pathPaint.color = colorAlpha(Color.WHITE, 0.7f)
+            buildShieldIcon(shieldIconPath, x, y, r * 0.55f)
+            c.drawPath(shieldIconPath, pathPaint)
+        } else {
+            fillPaint.color = colorAlpha(COLOR_FOOD_GLOW, 0.18f)
+            c.drawCircle(x, y, r * 2.4f, fillPaint)
+            fillPaint.color = colorAlpha(COLOR_FOOD_GLOW, 0.32f)
+            c.drawCircle(x, y, r * 1.5f, fillPaint)
+            fillPaint.color = COLOR_FOOD
+            c.drawCircle(x, y, r, fillPaint)
+            fillPaint.color = colorAlpha(Color.WHITE, 0.7f)
+            c.drawCircle(x - r * 0.3f, y - r * 0.35f, r * 0.32f, fillPaint)
+        }
     }
 
-    /** Fading particle ghosts streaming off the tail. */
     private fun drawTrailParticles(c: Canvas) {
         val pts = game.trail
         if (pts.size < 4) return
-        // tangent at the tail
         val tail = pts[0]
         val near = pts[3]
         var tx = tail.x - near.x
@@ -328,8 +376,8 @@ class SnakeView @JvmOverloads constructor(
         if (mag <= 0.001f) return
         tx /= mag; ty /= mag
 
-        val particles = 7
-        val baseR = game.bodyRadius * 0.42f
+        val particles = if (game.isDashing) 11 else 7
+        val baseR = game.bodyRadius * (if (game.isDashing) 0.55f else 0.42f)
         val step = game.bodyRadius * 1.2f
         for (i in 0 until particles) {
             val k = i / particles.toFloat()
@@ -355,7 +403,6 @@ class SnakeView @JvmOverloads constructor(
         var lastX = Float.NaN
         var lastY = Float.NaN
 
-        // body — overlapping circles, tail-first (head ends up on top)
         for (i in 0 until n) {
             val p = pts[i]
             val forceHead = i == n - 1
@@ -363,12 +410,11 @@ class SnakeView @JvmOverloads constructor(
                 continue
             }
 
-            val t = i / (n - 1f)            // 0 = tail, 1 = head
-            val tFromHead = 1f - t           // ramp using head-relative t
+            val t = i / (n - 1f)
+            val tFromHead = 1f - t
             val radius = segmentRadius * (0.55f + 0.45f * t)
             val color = bodyColorAt(tFromHead)
 
-            // soft outer halo
             fillPaint.color = colorAlpha(color, 0.16f)
             c.drawCircle(p.x, p.y, radius * 1.5f, fillPaint)
 
@@ -380,12 +426,11 @@ class SnakeView @JvmOverloads constructor(
         }
 
         val head = pts[n - 1]
+        drawShieldAura(c, head.x, head.y, segmentRadius * 1.15f)
         drawSnakeHead(c, head.x, head.y, game.heading, segmentRadius * 1.15f)
     }
 
-    /** head fill is the brightest mint; tail end fades to deep sage */
     private fun bodyColorAt(t: Float): Int {
-        // t: 0 = head, 1 = tail
         return when {
             t < 0.4f -> COLOR_BODY_TOP
             t < 0.75f -> COLOR_BODY_MID
@@ -393,15 +438,29 @@ class SnakeView @JvmOverloads constructor(
         }
     }
 
+    private fun drawShieldAura(c: Canvas, hx: Float, hy: Float, headR: Float) {
+        if (!game.isShielded) return
+        val pulse = 0.5f + 0.5f * sin(timeSeconds * 4f)
+        // outer glow
+        fillPaint.color = colorAlpha(COLOR_SHIELD, 0.10f + 0.08f * pulse)
+        c.drawCircle(hx, hy, headR + dp(16f), fillPaint)
+        // dashed-ish ring
+        pathPaint.style = Paint.Style.STROKE
+        pathPaint.strokeWidth = dp(1.6f)
+        pathPaint.color = colorAlpha(COLOR_SHIELD, 0.55f)
+        c.drawCircle(hx, hy, headR + dp(7f), pathPaint)
+        pathPaint.strokeWidth = dp(1f)
+        pathPaint.color = colorAlpha(COLOR_SHIELD, 0.30f)
+        c.drawCircle(hx, hy, headR + dp(12f), pathPaint)
+    }
+
     private fun drawSnakeHead(c: Canvas, x: Float, y: Float, dir: Float, r: Float) {
         val cosH = cos(dir); val sinH = sin(dir)
         val perpX = -sinH; val perpY = cosH
 
-        // round head
         fillPaint.color = COLOR_HEAD
         c.drawCircle(x, y, r, fillPaint)
 
-        // pink cheeks (placed slightly behind eyes, low opacity)
         val cheekFwd = r * 0.08f
         val cheekSide = r * 0.62f
         val cheekR = r * 0.18f
@@ -413,7 +472,6 @@ class SnakeView @JvmOverloads constructor(
         c.drawCircle(cx1, cy1, cheekR, fillPaint)
         c.drawCircle(cx2, cy2, cheekR, fillPaint)
 
-        // eyes: white sclera + dark pupil + tiny white highlight
         val eyeFwd = r * 0.32f
         val eyeSide = r * 0.45f
         val eyeR = r * 0.22f
@@ -436,14 +494,12 @@ class SnakeView @JvmOverloads constructor(
         c.drawCircle(px1, py1, pupilR, fillPaint)
         c.drawCircle(px2, py2, pupilR, fillPaint)
 
-        // pupil highlight — tiny white dot
         val hl = pupilR * 0.4f
         val hlOff = pupilR * 0.35f
         fillPaint.color = Color.WHITE
         c.drawCircle(px1 - cosH * hlOff - perpX * hlOff, py1 - sinH * hlOff - perpY * hlOff, hl, fillPaint)
         c.drawCircle(px2 - cosH * hlOff - perpX * hlOff, py2 - sinH * hlOff - perpY * hlOff, hl, fillPaint)
 
-        // tiny pink tongue ahead of head
         val tipFwd = r * 1.05f
         val tx = x + cosH * tipFwd
         val ty = y + sinH * tipFwd
@@ -461,9 +517,187 @@ class SnakeView @JvmOverloads constructor(
         c.drawPath(tonguePath, pathPaint)
     }
 
-    /** Joystick: idle preview anchored bottom-right; active follows touch. */
+    /** Bouncing +N popups at where food was eaten, plus a ring burst for shield pickups. */
+    private fun drawScorePopups(c: Canvas) {
+        for (popup in game.popups) {
+            val age = game.time - popup.spawnTime
+            val t = (age / game.popupDuration).coerceIn(0f, 1f)
+            val ease = 1f - (1f - t) * (1f - t)              // ease-out
+            val rise = ease * dp(38f)
+            val alpha = (1f - t * t).coerceAtLeast(0f)
+            if (popup.value > 0) {
+                val scale = 0.85f + (1f - t) * 0.4f          // pop bigger then settle
+                val text = "+${popup.value}"
+                // 1) white outline (stroke only)
+                hudStrokePaint.style = Paint.Style.STROKE
+                hudStrokePaint.strokeWidth = dp(3f)
+                hudStrokePaint.textSize = dp(20f) * scale
+                hudStrokePaint.color = colorAlpha(Color.WHITE, alpha)
+                c.drawText(text, popup.x, popup.y - rise, hudStrokePaint)
+                // 2) accent fill on top
+                hudTextPaint.style = Paint.Style.FILL
+                hudTextPaint.textSize = dp(20f) * scale
+                hudTextPaint.color = colorAlpha(COLOR_ACCENT_DEEP, alpha)
+                c.drawText(text, popup.x, popup.y - rise, hudTextPaint)
+            } else {
+                pathPaint.style = Paint.Style.STROKE
+                pathPaint.strokeWidth = dp(2.4f)
+                pathPaint.color = colorAlpha(COLOR_SHIELD, alpha)
+                c.drawCircle(popup.x, popup.y, dp(14f) + ease * dp(48f), pathPaint)
+                pathPaint.strokeWidth = dp(1.4f)
+                pathPaint.color = colorAlpha(COLOR_SHIELD, alpha * 0.6f)
+                c.drawCircle(popup.x, popup.y, dp(20f) + ease * dp(70f), pathPaint)
+            }
+        }
+    }
+
+    /** Frosted pill at top-center showing live combo multiplier; fades with time-since-eat. */
+    private fun drawComboBanner(c: Canvas) {
+        if (game.combo < 2) return
+        val freshness = (game.comboTimeRemaining / game.comboWindow).coerceIn(0f, 1f)
+        val alpha = 0.4f + 0.55f * freshness
+
+        val text = "COMBO ×${game.combo}"
+        val bonusText = "+${(game.combo - 1) * 5}"
+        hudTextPaint.textSize = dp(11f)
+        hudTextPaint.letterSpacing = 0.14f
+        val tw = hudTextPaint.measureText(text)
+        hudTextPaint.letterSpacing = 0f
+        hudTextPaint.textSize = dp(11f)
+        val bw = hudTextPaint.measureText(bonusText)
+
+        val cx = width / 2f
+        val cy = dp(78f)
+        val w = tw + bw + dp(56f)
+        val h = dp(28f)
+        val r = h / 2f
+        val rect = RectF(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f)
+
+        fillPaint.color = colorAlpha(COLOR_SURFACE, 0.92f * alpha + 0.05f)
+        c.drawRoundRect(rect, r, r, fillPaint)
+        pathPaint.style = Paint.Style.STROKE
+        pathPaint.strokeWidth = dp(1f)
+        pathPaint.color = colorAlpha(COLOR_TEXT, 0.10f)
+        c.drawRoundRect(rect, r, r, pathPaint)
+
+        // sparkle dot on the left
+        fillPaint.color = colorAlpha(COLOR_ACCENT, alpha)
+        c.drawCircle(rect.left + dp(14f), cy, dp(2.6f), fillPaint)
+
+        // combo text
+        hudTextPaint.color = colorAlpha(COLOR_TEXT, alpha)
+        hudTextPaint.letterSpacing = 0.14f
+        hudTextPaint.textAlign = Paint.Align.LEFT
+        c.drawText(text, rect.left + dp(22f), cy + dp(4f), hudTextPaint)
+        hudTextPaint.letterSpacing = 0f
+
+        // bonus on the right
+        hudTextPaint.color = colorAlpha(COLOR_ACCENT_DEEP, alpha)
+        hudTextPaint.textAlign = Paint.Align.RIGHT
+        c.drawText(bonusText, rect.right - dp(14f), cy + dp(4f), hudTextPaint)
+
+        hudTextPaint.textAlign = Paint.Align.CENTER
+    }
+
+    /** Shield countdown pill, top-right under the pause button. */
+    private fun drawShieldPill(c: Canvas) {
+        if (!game.isShielded) return
+        val text = String.format("%.1fs", game.shieldRemaining)
+        hudTextPaint.textAlign = Paint.Align.LEFT
+        hudTextPaint.textSize = dp(11f)
+        val tw = hudTextPaint.measureText(text)
+        val padH = dp(10f)
+        val padIcon = dp(18f)
+        val w = tw + padH * 2f + padIcon
+        val h = dp(26f)
+        val r = h / 2f
+        val right = width - dp(20f)
+        val top = dp(78f)
+        val rect = RectF(right - w, top, right, top + h)
+
+        fillPaint.color = colorAlpha(COLOR_SURFACE, 0.85f)
+        c.drawRoundRect(rect, r, r, fillPaint)
+        pathPaint.style = Paint.Style.STROKE
+        pathPaint.strokeWidth = dp(1f)
+        pathPaint.color = colorAlpha(COLOR_SHIELD, 0.35f)
+        c.drawRoundRect(rect, r, r, pathPaint)
+
+        // shield icon on the left
+        val iconCx = rect.left + dp(14f)
+        val iconCy = rect.centerY()
+        buildShieldIcon(shieldIconPath, iconCx, iconCy, dp(6.5f))
+        fillPaint.color = colorAlpha(COLOR_SHIELD, 0.95f)
+        c.drawPath(shieldIconPath, fillPaint)
+
+        // remaining seconds
+        hudTextPaint.color = COLOR_TEXT
+        c.drawText(text, iconCx + dp(11f), rect.centerY() + dp(4f), hudTextPaint)
+        hudTextPaint.textAlign = Paint.Align.CENTER
+    }
+
+    /** Bottom-left dash button. Charging ring tracks cooldown; flash when ready. */
+    private fun drawDashButton(c: Canvas) {
+        val cx = dashCenterX()
+        val cy = dashCenterY()
+        val ready = game.dashReady
+        val dashing = game.isDashing
+        val progress = game.dashCooldownProgress
+
+        // backing ring
+        pathPaint.style = Paint.Style.STROKE
+        pathPaint.strokeWidth = dp(2.8f)
+        pathPaint.color = colorAlpha(COLOR_TEXT, 0.10f)
+        c.drawCircle(cx, cy, dashRingR, pathPaint)
+
+        // cooldown / ready arc
+        arcRect.set(cx - dashRingR, cy - dashRingR, cx + dashRingR, cy + dashRingR)
+        if (dashing) {
+            val pulse = 0.5f + 0.5f * sin(timeSeconds * 12f)
+            pathPaint.color = colorAlpha(COLOR_FOOD, 0.6f + 0.4f * pulse)
+            c.drawCircle(cx, cy, dashRingR, pathPaint)
+        } else {
+            val sweep = 360f * progress
+            pathPaint.color = if (ready) COLOR_FOOD else colorAlpha(COLOR_FOOD, 0.85f)
+            c.drawArc(arcRect, -90f, sweep, false, pathPaint)
+        }
+
+        // shadow
+        fillPaint.color = colorAlpha(COLOR_FOOD, if (ready) 0.4f else 0.25f)
+        c.drawCircle(cx, cy + dp(3f), dashOuterR, fillPaint)
+
+        // body
+        val bodyAlpha = if (ready) 1f else 0.7f
+        fillPaint.color = colorAlpha(COLOR_FOOD, bodyAlpha)
+        c.drawCircle(cx, cy, dashOuterR, fillPaint)
+
+        // bolt icon
+        buildBoltPath(boltPath, cx, cy - dp(2f), dp(13f))
+        fillPaint.color = colorAlpha(Color.WHITE, if (ready) 1f else 0.85f)
+        c.drawPath(boltPath, fillPaint)
+
+        // 冲刺 label under the bolt
+        hudTextPaint.textAlign = Paint.Align.CENTER
+        hudTextPaint.textSize = dp(9f)
+        hudTextPaint.color = colorAlpha(Color.WHITE, 0.85f)
+        c.drawText("冲刺", cx, cy + dp(15f), hudTextPaint)
+
+        // ready badge — small "GO" chip at upper-right
+        if (ready && !dashing) {
+            val bx = cx + dashOuterR * 0.78f
+            val by = cy - dashOuterR * 0.78f
+            fillPaint.color = Color.WHITE
+            c.drawCircle(bx, by, dp(11f), fillPaint)
+            pathPaint.style = Paint.Style.STROKE
+            pathPaint.strokeWidth = dp(1f)
+            pathPaint.color = colorAlpha(COLOR_TEXT, 0.10f)
+            c.drawCircle(bx, by, dp(11f), pathPaint)
+            hudTextPaint.textSize = dp(9f)
+            hudTextPaint.color = COLOR_TEXT
+            c.drawText("GO", bx, by + dp(3.2f), hudTextPaint)
+        }
+    }
+
     private fun drawJoystick(c: Canvas) {
-        // anchor: when active, where finger went down; idle, fixed bottom-right
         val idleX = width - dp(72f)
         val idleY = (height - dp(108f)).coerceAtLeast(dp(140f))
         val baseX = if (joystickActive || joystickAlpha > 0.04f) joyAnchorX else idleX
@@ -471,7 +705,6 @@ class SnakeView @JvmOverloads constructor(
 
         val outerRadius = dp(46f)
         val stickRadius = dp(22f)
-        // visible always, but stronger when active
         val a = 0.42f + joystickAlpha.coerceIn(0f, 1f) * 0.55f
 
         var dx = if (joystickActive) joyStickX - joyAnchorX else 0f
@@ -484,19 +717,16 @@ class SnakeView @JvmOverloads constructor(
             dy *= k
         }
 
-        // outer frosted ring
         fillPaint.color = colorAlpha(COLOR_SURFACE, 0.55f * a)
         c.drawCircle(baseX, baseY, outerRadius, fillPaint)
         pathPaint.style = Paint.Style.STROKE
         pathPaint.strokeWidth = dp(1.5f)
         pathPaint.color = colorAlpha(COLOR_TEXT, 0.18f * a)
         c.drawCircle(baseX, baseY, outerRadius, pathPaint)
-        // inner softer ring
         pathPaint.strokeWidth = dp(6f)
         pathPaint.color = colorAlpha(COLOR_SURFACE, 0.45f * a)
         c.drawCircle(baseX, baseY, outerRadius - dp(4f), pathPaint)
 
-        // 8 directional ticks
         pathPaint.strokeWidth = dp(1.4f)
         pathPaint.color = colorAlpha(COLOR_TEXT, 0.45f * a)
         pathPaint.strokeCap = Paint.Cap.ROUND
@@ -512,14 +742,12 @@ class SnakeView @JvmOverloads constructor(
             )
         }
 
-        // travel line from centre to knob (only when active)
         if (joystickActive && mag > 1f) {
             pathPaint.strokeWidth = dp(3f)
             pathPaint.color = colorAlpha(COLOR_ACCENT, 0.55f * a)
             c.drawLine(baseX, baseY, baseX + dx, baseY + dy, pathPaint)
         }
 
-        // knob — mint accent with subtle drop shadow
         val knobX = baseX + dx
         val knobY = baseY + dy
         fillPaint.color = colorAlpha(COLOR_ACCENT, 0.35f * a)
@@ -529,7 +757,6 @@ class SnakeView @JvmOverloads constructor(
         fillPaint.color = colorAlpha(Color.WHITE, 0.18f * a)
         c.drawCircle(knobX - stickRadius * 0.3f, knobY - stickRadius * 0.35f, stickRadius * 0.32f, fillPaint)
 
-        // 方向 label under the ring
         subPaint.color = colorAlpha(COLOR_TEXT, 0.55f * a)
         subPaint.textSize = dp(10f)
         val labelY = min(height - dp(12f), baseY + outerRadius + dp(20f))
@@ -547,10 +774,39 @@ class SnakeView @JvmOverloads constructor(
         c.drawRect(viewRect, overlayPaint)
         val cx = width / 2f
         val cy = height / 2f
+        titlePaint.textAlign = Paint.Align.CENTER
         titlePaint.color = COLOR_TEXT
+        titlePaint.textSize = dp(28f)
         c.drawText(title, cx, cy, titlePaint)
         subPaint.color = COLOR_MUTED
+        subPaint.textSize = dp(11f)
         c.drawText(sub, cx, cy + dp(28f), subPaint)
+    }
+
+    // ---------- icon path helpers ----------
+    private fun buildBoltPath(p: Path, cx: Float, cy: Float, h: Float) {
+        p.reset()
+        val w = h * 0.55f
+        p.moveTo(cx - w * 0.30f, cy - h * 0.55f)
+        p.lineTo(cx + w * 0.45f, cy - h * 0.55f)
+        p.lineTo(cx + w * 0.05f, cy - h * 0.05f)
+        p.lineTo(cx + w * 0.50f, cy - h * 0.05f)
+        p.lineTo(cx - w * 0.30f, cy + h * 0.55f)
+        p.lineTo(cx + w * 0.10f, cy + h * 0.10f)
+        p.lineTo(cx - w * 0.40f, cy + h * 0.10f)
+        p.close()
+    }
+
+    private fun buildShieldIcon(p: Path, cx: Float, cy: Float, r: Float) {
+        p.reset()
+        val w = r * 1.0f
+        p.moveTo(cx, cy - r)
+        p.lineTo(cx + w, cy - r * 0.55f)
+        p.lineTo(cx + w * 0.7f, cy + r * 0.6f)
+        p.lineTo(cx, cy + r)
+        p.lineTo(cx - w * 0.7f, cy + r * 0.6f)
+        p.lineTo(cx - w, cy - r * 0.55f)
+        p.close()
     }
 
     // ---------- helpers ----------
@@ -562,7 +818,6 @@ class SnakeView @JvmOverloads constructor(
     }
 
     companion object {
-        // Variant A · 薄荷清新 palette (kept in code so paint state is fast)
         private const val COLOR_TEXT = 0xFF2C3024.toInt()
         private const val COLOR_MUTED = 0xFF6B7060.toInt()
         private const val COLOR_SURFACE = 0xFFFFFDF4.toInt()
@@ -580,6 +835,10 @@ class SnakeView @JvmOverloads constructor(
         private const val COLOR_FOOD = 0xFFF4A261.toInt()
         private const val COLOR_FOOD_GLOW = 0xFFFCD7A8.toInt()
 
+        private const val COLOR_SHIELD = 0xFF7FB7E8.toInt()
+        private const val COLOR_SHIELD_GLOW = 0xFFBFD9EE.toInt()
+
         private const val COLOR_ACCENT = 0xFF7AAB86.toInt()
+        private const val COLOR_ACCENT_DEEP = 0xFF4D8C6B.toInt()
     }
 }
