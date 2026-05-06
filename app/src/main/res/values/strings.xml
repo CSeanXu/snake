@@ -7,6 +7,7 @@
     <string name="resume">继续</string>
     <string name="restart">重新开始</string>
     <string name="game_over">游戏结束</string>
-    <string name="tap_to_start">点击屏幕开始</string>
-    <string name="hint_swipe">滑动屏幕控制方向</string>
+    <string name="tap_to_start">触摸屏幕开始</string>
+    <string name="tap_restart">触摸屏幕重新开始</string>
+    <string name="hint_drag">拖动屏幕控制方向</string>
 </resources>

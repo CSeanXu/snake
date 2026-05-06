@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#0F1117</color>
-    <color name="board_bg">#161A22</color>
-    <color name="board_grid">#1F2531</color>
-    <color name="snake_head">#7CFFB2</color>
-    <color name="snake_body">#3DDC84</color>
-    <color name="snake_body_dark">#1F8A4C</color>
-    <color name="food">#FF5A5F</color>
+    <color name="bg_top">#0A0E14</color>
+    <color name="bg_bottom">#131826</color>
+    <color name="surface">#0F1320</color>
+    <color name="surface_alt">#161B26</color>
     <color name="text_primary">#F2F4F8</color>
     <color name="text_secondary">#9AA3B2</color>
-    <color name="accent">#3DDC84</color>
-    <color name="overlay">#B3000000</color>
+    <color name="accent">#4ADE80</color>
+    <color name="accent_bright">#7CFFB2</color>
+    <color name="food">#F472B6</color>
+    <color name="chip_fill">#0DFFFFFF</color>
+    <color name="chip_stroke">#1AFFFFFF</color>
+    <color name="icon_btn_fill">#14FFFFFF</color>
 </resources>

@@ -4,11 +4,11 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
+    android:fitsSystemWindows="true"
     android:padding="16dp">
 
     <LinearLayout
-        android:id="@+id/scoreBar"
+        android:id="@+id/topBar"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
@@ -21,16 +21,17 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginEnd="8dp"
             android:orientation="vertical"
             android:background="@drawable/score_chip"
-            android:padding="12dp">
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="10dp">
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/score_label"
                 android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
+                android:textSize="11sp"
+                android:letterSpacing="0.08" />
             <TextView
                 android:id="@+id/scoreText"
                 android:layout_width="wrap_content"
@@ -38,23 +39,26 @@
                 android:text="0"
                 android:textColor="@color/text_primary"
                 android:textSize="22sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                android:fontFeatureSettings="tnum" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="10dp"
             android:orientation="vertical"
             android:background="@drawable/score_chip"
-            android:padding="12dp">
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="10dp">
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/best_label"
                 android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
+                android:textSize="11sp"
+                android:letterSpacing="0.08" />
             <TextView
                 android:id="@+id/bestText"
                 android:layout_width="wrap_content"
@@ -62,8 +66,29 @@
                 android:text="0"
                 android:textColor="@color/accent"
                 android:textSize="22sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                android:fontFeatureSettings="tnum" />
         </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/pauseBtn"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="10dp"
+            android:src="@drawable/ic_pause"
+            android:background="@drawable/icon_btn_bg"
+            android:scaleType="centerInside"
+            android:contentDescription="@string/pause" />
+
+        <ImageButton
+            android:id="@+id/restartBtn"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="10dp"
+            android:src="@drawable/ic_restart"
+            android:background="@drawable/icon_btn_bg"
+            android:scaleType="centerInside"
+            android:contentDescription="@string/restart" />
     </LinearLayout>
 
     <com.example.snake.SnakeView
@@ -71,50 +96,9 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:layout_marginTop="16dp"
-        android:layout_marginBottom="16dp"
-        app:layout_constraintTop_toBottomOf="@id/scoreBar"
-        app:layout_constraintBottom_toTopOf="@id/controlBar"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintDimensionRatio="H,1:1" />
-
-    <LinearLayout
-        android:id="@+id/controlBar"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center"
+        app:layout_constraintTop_toBottomOf="@id/topBar"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
-
-        <Button
-            android:id="@+id/pauseBtn"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="8dp"
-            android:background="@drawable/btn_round"
-            android:text="@string/pause"
-            android:textColor="@color/text_primary"
-            android:textAllCaps="false"
-            android:textSize="16sp"
-            android:paddingVertical="14dp"
-            android:stateListAnimator="@null" />
-
-        <Button
-            android:id="@+id/restartBtn"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/btn_round"
-            android:text="@string/restart"
-            android:textColor="@color/accent"
-            android:textAllCaps="false"
-            android:textSize="16sp"
-            android:paddingVertical="14dp"
-            android:stateListAnimator="@null" />
-    </LinearLayout>
+        app:layout_constraintEnd_toEndOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

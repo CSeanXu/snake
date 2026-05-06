@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Snake" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.Snake" parent="Theme.MaterialComponents.NoActionBar">
         <item name="colorPrimary">@color/accent</item>
-        <item name="colorPrimaryVariant">@color/snake_body_dark</item>
+        <item name="colorPrimaryVariant">@color/accent</item>
         <item name="colorOnPrimary">#000000</item>
-        <item name="android:statusBarColor">@color/bg</item>
-        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg_top</item>
+        <item name="android:navigationBarColor">@color/bg_bottom</item>
+        <item name="android:windowBackground">@drawable/bg_main</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

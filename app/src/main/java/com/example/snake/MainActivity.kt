@@ -21,9 +21,6 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
         binding.snakeView.listener = this
         binding.pauseBtn.setOnClickListener { binding.snakeView.togglePause() }
         binding.restartBtn.setOnClickListener { binding.snakeView.restart() }
-
-        updateScore(binding.snakeView.score)
-        updatePauseLabel(binding.snakeView.state)
     }
 
     override fun onPause() {
@@ -32,8 +29,13 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
     }
 
     override fun onStateChanged(state: GameState, score: Int) {
-        updateScore(score)
-        updatePauseLabel(state)
+        binding.scoreText.text = score.toString()
+        binding.pauseBtn.setImageResource(
+            if (state == GameState.RUNNING) R.drawable.ic_pause else R.drawable.ic_play
+        )
+        binding.pauseBtn.isEnabled = state != GameState.OVER
+        binding.pauseBtn.alpha = if (state == GameState.OVER) 0.4f else 1f
+
         if (state == GameState.OVER && score > bestScore) {
             bestScore = score
             binding.bestText.text = bestScore.toString()
@@ -42,18 +44,6 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
                 .putInt(KEY_BEST, bestScore)
                 .apply()
         }
-    }
-
-    private fun updateScore(score: Int) {
-        binding.scoreText.text = score.toString()
-    }
-
-    private fun updatePauseLabel(state: GameState) {
-        binding.pauseBtn.text = when (state) {
-            GameState.PAUSED -> getString(R.string.resume)
-            else -> getString(R.string.pause)
-        }
-        binding.pauseBtn.isEnabled = state != GameState.OVER
     }
 
     companion object {
