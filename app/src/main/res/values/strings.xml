@@ -1,17 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Snake.io</string>
-    <string name="score_label">SCORE:</string>
-    <string name="best_label">BEST:</string>
+    <string name="score_label">SCORE</string>
+    <string name="best_label">BEST</string>
+    <string name="length_label">LEN</string>
+    <string name="brand_mark">SNAKE · FREE</string>
     <string name="pause">暂停</string>
     <string name="resume">继续</string>
     <string name="restart">重新开始</string>
-    <string name="respawn">RESPAWN</string>
+    <string name="respawn">重开</string>
     <string name="settings">设置</string>
     <string name="profile">个人资料</string>
     <string name="trophy">排行榜</string>
     <string name="global_ranking">GLOBAL RANKING</string>
-    <string name="sensor_active">360° MOTION SENSOR ACTIVE</string>
+    <string name="sensor_active">方向</string>
     <string name="game_over">游戏结束</string>
     <string name="tap_to_start">触摸屏幕开始</string>
     <string name="tap_restart">触摸屏幕重新开始</string>

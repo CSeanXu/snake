@@ -1,17 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg_top">#F9FAEF</color>
-    <color name="bg_bottom">#F5F7E9</color>
-    <color name="surface">#FAFAF2</color>
-    <color name="surface_alt">#F4F6EA</color>
-    <color name="text_primary">#14211C</color>
-    <color name="text_secondary">#6D746E</color>
-    <color name="accent">#006A45</color>
-    <color name="accent_bright">#81F0BF</color>
-    <color name="accent_blue">#16506C</color>
-    <color name="food">#C91822</color>
-    <color name="chip_fill">#FAFAF2</color>
-    <color name="chip_stroke">#E8EBDE</color>
-    <color name="icon_btn_fill">#FAFAF2</color>
+    <!-- Variant A · 薄荷清新 -->
+    <color name="bg_top">#F8F3E7</color>
+    <color name="bg_bottom">#EDE5D3</color>
+    <color name="surface">#FFFDF4</color>
+    <color name="surface_alt">#F5EFE1</color>
+
+    <color name="text_primary">#2C3024</color>
+    <color name="text_secondary">#6B7060</color>
+    <color name="muted">#8E9384</color>
+
+    <color name="accent">#7AAB86</color>
+    <color name="accent_deep">#5AA872</color>
+    <color name="accent_blue">#7FB285</color>
+
+    <!-- Snake body ramp head→tail -->
+    <color name="snake_head">#9ED6A2</color>
+    <color name="snake_body_top">#8ACF91</color>
+    <color name="snake_body_mid">#74C084</color>
+    <color name="snake_body_tail">#5AA872</color>
+    <color name="snake_cheek">#F4A8B4</color>
+    <color name="snake_eye">#241C14</color>
+
+    <!-- Food: warm apricot -->
+    <color name="food">#F4A261</color>
+    <color name="food_glow">#FCD7A8</color>
+
+    <!-- Grid + chip strokes -->
+    <color name="grid_line">#1A465037</color>
+    <color name="grid_line_sub">#0C465037</color>
     <color name="grid_dot">#D9DEC9</color>
+
+    <color name="chip_fill">#C7FFFDF4</color>
+    <color name="chip_stroke">#1A3C4632</color>
+    <color name="icon_btn_fill">#FFFDF4</color>
 </resources>

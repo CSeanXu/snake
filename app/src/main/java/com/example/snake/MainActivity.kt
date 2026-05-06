@@ -61,6 +61,7 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
 
     override fun onStateChanged(state: GameState, score: Int) {
         binding.scoreText.text = formatScore(score)
+        binding.lengthText.text = formatScore(binding.snakeView.length)
 
         if (state == GameState.OVER && score > bestScore) {
             bestScore = score
