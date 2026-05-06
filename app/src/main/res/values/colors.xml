@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#0F1117</color>
+    <color name="board_bg">#161A22</color>
+    <color name="board_grid">#1F2531</color>
+    <color name="snake_head">#7CFFB2</color>
+    <color name="snake_body">#3DDC84</color>
+    <color name="snake_body_dark">#1F8A4C</color>
+    <color name="food">#FF5A5F</color>
+    <color name="text_primary">#F2F4F8</color>
+    <color name="text_secondary">#9AA3B2</color>
+    <color name="accent">#3DDC84</color>
+    <color name="overlay">#B3000000</color>
+</resources>
