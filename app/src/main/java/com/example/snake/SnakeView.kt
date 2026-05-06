@@ -1,10 +1,9 @@
 package com.example.snake
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.Choreographer
@@ -13,6 +12,8 @@ import android.view.View
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 
 class SnakeView @JvmOverloads constructor(
@@ -54,6 +55,7 @@ class SnakeView @JvmOverloads constructor(
     }
     private var bootNanos = 0L
     private var timeSeconds = 0f
+    private var backgroundBitmap: Bitmap? = null
 
     // ---------- joystick (floating) ----------
     private var joystickActive = false
@@ -64,7 +66,6 @@ class SnakeView @JvmOverloads constructor(
     private var joyStickY = 0f
 
     private val joystickRadius = dp(56f)
-    private val joystickStickRadius = dp(26f)
     private val joystickDeadzone = dp(8f)
     private var pointerId = MotionEvent.INVALID_POINTER_ID
 
@@ -77,16 +78,16 @@ class SnakeView @JvmOverloads constructor(
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
+        color = 0xFF006A45.toInt()
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
     private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xCCB8C0CC.toInt()
+        color = 0xFF9CA493.toInt()
         textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
     }
 
-    private val bodyPath = Path()
     private val viewRect = RectF()
 
     init {
@@ -104,14 +105,20 @@ class SnakeView @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         choreographer.removeFrameCallback(frameCallback)
+        backgroundBitmap?.recycle()
+        backgroundBitmap = null
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldW: Int, oldH: Int) {
         super.onSizeChanged(w, h, oldW, oldH)
         viewRect.set(0f, 0f, w.toFloat(), h.toFloat())
+        backgroundBitmap?.recycle()
+        backgroundBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also {
+            drawBackgroundPattern(Canvas(it), w.toFloat(), h.toFloat())
+        }
         game.setSize(w.toFloat(), h.toFloat())
-        titlePaint.textSize = dp(34f)
-        subPaint.textSize = dp(14f)
+        titlePaint.textSize = dp(28f)
+        subPaint.textSize = dp(11f)
     }
 
     // ---------- input ----------
@@ -216,26 +223,53 @@ class SnakeView @JvmOverloads constructor(
 
     // ---------- rendering ----------
     override fun onDraw(canvas: Canvas) {
+        drawBackground(canvas)
         drawFood(canvas)
         drawSnake(canvas)
         drawJoystick(canvas)
         drawOverlay(canvas)
     }
 
+    private fun drawBackground(c: Canvas) {
+        backgroundBitmap?.let {
+            c.drawBitmap(it, 0f, 0f, null)
+            return
+        }
+        drawBackgroundPattern(c, width.toFloat(), height.toFloat())
+    }
+
+    private fun drawBackgroundPattern(c: Canvas, canvasWidth: Float, canvasHeight: Float) {
+        c.drawColor(0xFFF7F8EC.toInt())
+
+        val spacing = dp(24f)
+        val dotRadius = max(1f, dp(1.05f))
+        fillPaint.color = 0xFFDCE1CF.toInt()
+
+        var y = dp(3f)
+        while (y < canvasHeight) {
+            var x = dp(3f)
+            while (x < canvasWidth) {
+                c.drawCircle(x, y, dotRadius, fillPaint)
+                x += spacing
+            }
+            y += spacing
+        }
+    }
+
     private fun drawFood(c: Canvas) {
         val r = game.foodRadius * (1f + 0.10f * sin(timeSeconds * 4f))
         val x = game.foodX
         val y = game.foodY
-        // halo
-        fillPaint.color = 0x33F472B6
+
+        fillPaint.color = 0x22C91822
         c.drawCircle(x, y, r * 2.2f, fillPaint)
-        fillPaint.color = 0x80F472B6.toInt()
+        fillPaint.color = 0x66C91822
         c.drawCircle(x, y, r * 1.45f, fillPaint)
-        // body
-        fillPaint.color = 0xFFF472B6.toInt()
+
+        fillPaint.color = 0xFFC91822.toInt()
         c.drawCircle(x, y, r, fillPaint)
-        // sheen
-        fillPaint.color = 0xCCFCE7F3.toInt()
+
+        fillPaint.color = 0xCCEFA5A5.toInt()
         c.drawCircle(x - r * 0.32f, y - r * 0.32f, r * 0.32f, fillPaint)
     }
 
@@ -243,82 +277,112 @@ class SnakeView @JvmOverloads constructor(
         val pts = game.trail
         val n = pts.size
         if (n < 2) return
-        val r = game.bodyRadius
 
-        bodyPath.reset()
-        bodyPath.moveTo(pts[0].x, pts[0].y)
-        for (i in 1 until n) bodyPath.lineTo(pts[i].x, pts[i].y)
+        val segmentRadius = game.bodyRadius * 1.3f
+        val sampleDistance = segmentRadius * 0.82f
+        var lastX = Float.NaN
+        var lastY = Float.NaN
 
-        // Glow halos (cheap two-pass fake blur).
-        pathPaint.color = 0x334ADE80
-        pathPaint.strokeWidth = r * 3.6f
-        c.drawPath(bodyPath, pathPaint)
-        pathPaint.color = 0x664ADE80
-        pathPaint.strokeWidth = r * 2.7f
-        c.drawPath(bodyPath, pathPaint)
+        for (i in 0 until n) {
+            val p = pts[i]
+            val forceHead = i == n - 1
+            if (!forceHead && !lastX.isNaN() && hypot(p.x - lastX, p.y - lastY) < sampleDistance) {
+                continue
+            }
 
-        // Subtle outline so the body stays defined against bright glow.
-        pathPaint.color = 0xFF0E2B17.toInt()
-        pathPaint.strokeWidth = r * 2.15f
-        c.drawPath(bodyPath, pathPaint)
+            val t = i / (n - 1f)
+            val radius = segmentRadius * (0.58f + 0.42f * t)
+            val alpha = 0.25f + 0.75f * t
+            val bodyColor = blendColor(0xFFCFFBE7.toInt(), 0xFF4AA98E.toInt(), t)
 
-        // Body fill.
-        pathPaint.color = 0xFF4ADE80.toInt()
-        pathPaint.strokeWidth = r * 1.95f
-        c.drawPath(bodyPath, pathPaint)
+            fillPaint.color = colorAlpha(bodyColor, 0.18f * alpha)
+            c.drawCircle(p.x, p.y, radius * 1.5f, fillPaint)
 
-        // Head accent: brighter mint mass at the front, plus eyes.
-        val headIdx = n - 1
-        val head = pts[headIdx]
-        fillPaint.color = 0xFF7CFFB2.toInt()
-        c.drawCircle(head.x, head.y, r * 1.1f, fillPaint)
-        drawEyes(c, head.x, head.y, game.heading, r)
+            fillPaint.color = colorAlpha(bodyColor, alpha)
+            c.drawCircle(p.x, p.y, radius, fillPaint)
+
+            lastX = p.x
+            lastY = p.y
+        }
+
+        val head = pts[n - 1]
+        fillPaint.color = 0x3357B49B
+        c.drawCircle(head.x, head.y, segmentRadius * 1.48f, fillPaint)
+        fillPaint.color = 0xFF4EA58E.toInt()
+        c.drawCircle(head.x, head.y, segmentRadius * 1.1f, fillPaint)
+        drawEyes(c, head.x, head.y, game.heading, segmentRadius * 1.1f)
     }
 
     private fun drawEyes(c: Canvas, hx: Float, hy: Float, heading: Float, r: Float) {
         val cosH = cos(heading); val sinH = sin(heading)
         val perpX = -sinH; val perpY = cosH
-        val forward = r * 0.32f
-        val side = r * 0.55f
-        val eyeR = r * 0.34f
-        val pupilR = eyeR * 0.55f
+        val forward = r * 0.18f
+        val side = r * 0.42f
+        val eyeR = r * 0.11f
 
         val ex1 = hx + cosH * forward + perpX * side
         val ey1 = hy + sinH * forward + perpY * side
         val ex2 = hx + cosH * forward - perpX * side
         val ey2 = hy + sinH * forward - perpY * side
 
-        fillPaint.color = Color.WHITE
+        fillPaint.color = 0xFF283B35.toInt()
         c.drawCircle(ex1, ey1, eyeR, fillPaint)
         c.drawCircle(ex2, ey2, eyeR, fillPaint)
 
-        val pupilOff = eyeR * 0.45f
-        fillPaint.color = 0xFF0A0E14.toInt()
-        c.drawCircle(ex1 + cosH * pupilOff, ey1 + sinH * pupilOff, pupilR, fillPaint)
-        c.drawCircle(ex2 + cosH * pupilOff, ey2 + sinH * pupilOff, pupilR, fillPaint)
+        pathPaint.style = Paint.Style.STROKE
+        pathPaint.strokeCap = Paint.Cap.ROUND
+        pathPaint.strokeWidth = r * 0.08f
+        pathPaint.color = 0x99283B35.toInt()
+        val mx = hx + cosH * r * 0.44f
+        val my = hy + sinH * r * 0.44f
+        c.drawLine(
+            mx - perpX * r * 0.14f,
+            my - perpY * r * 0.14f,
+            mx + perpX * r * 0.14f,
+            my + perpY * r * 0.14f,
+            pathPaint
+        )
     }
 
     private fun drawJoystick(c: Canvas) {
-        if (joystickAlpha < 0.02f) return
-        val a = joystickAlpha.coerceIn(0f, 1f)
+        val baseX = width / 2f
+        val baseY = (height - dp(86f)).coerceAtLeast(dp(124f))
+        val outerRadius = dp(46f)
+        val stickRadius = dp(23f)
+        val a = 0.56f + joystickAlpha.coerceIn(0f, 1f) * 0.38f
 
-        // Outer ring.
+        var dx = joyStickX - joyAnchorX
+        var dy = joyStickY - joyAnchorY
+        val mag = hypot(dx, dy)
+        val maxOffset = outerRadius - stickRadius * 0.35f
+        if (mag > maxOffset && mag > 0f) {
+            val k = maxOffset / mag
+            dx *= k
+            dy *= k
+        }
+        if (!joystickActive && joystickAlpha < 0.04f) {
+            dx = 0f
+            dy = 0f
+        }
+
         pathPaint.style = Paint.Style.STROKE
-        pathPaint.color = colorAlpha(0xFFFFFFFF.toInt(), 0.28f * a)
-        pathPaint.strokeWidth = dp(2f)
-        c.drawCircle(joyAnchorX, joyAnchorY, joystickRadius, pathPaint)
-        pathPaint.style = Paint.Style.STROKE
+        pathPaint.color = colorAlpha(0xFFB8EFD6.toInt(), 0.72f * a)
+        pathPaint.strokeWidth = dp(1.8f)
+        c.drawCircle(baseX, baseY, outerRadius, pathPaint)
         pathPaint.strokeCap = Paint.Cap.ROUND
 
-        // Translucent fill inside ring.
-        fillPaint.color = colorAlpha(0xFFFFFFFF.toInt(), 0.06f * a)
-        c.drawCircle(joyAnchorX, joyAnchorY, joystickRadius - dp(1f), fillPaint)
+        fillPaint.color = colorAlpha(0xFFFFFFFF.toInt(), 0.28f * a)
+        c.drawCircle(baseX, baseY, outerRadius - dp(1f), fillPaint)
 
-        // Stick — soft outer + bright core.
-        fillPaint.color = colorAlpha(0xFFFFFFFF.toInt(), 0.35f * a)
-        c.drawCircle(joyStickX, joyStickY, joystickStickRadius, fillPaint)
-        fillPaint.color = colorAlpha(0xFFFFFFFF.toInt(), 0.95f * a)
-        c.drawCircle(joyStickX, joyStickY, joystickStickRadius * 0.65f, fillPaint)
+        fillPaint.color = colorAlpha(0xFFB9F5DC.toInt(), 0.38f * a)
+        c.drawCircle(baseX + dx, baseY + dy, stickRadius * 1.15f, fillPaint)
+        fillPaint.color = colorAlpha(0xFFFDFEF7.toInt(), 0.92f * a)
+        c.drawCircle(baseX + dx, baseY + dy, stickRadius * 0.76f, fillPaint)
+
+        subPaint.color = 0xFFABB3A4.toInt()
+        subPaint.textSize = dp(10f)
+        val labelY = min(height - dp(20f), baseY + outerRadius + dp(23f))
+        c.drawText(resources.getString(R.string.sensor_active), baseX, labelY, subPaint)
     }
 
     private fun drawOverlay(c: Canvas) {
@@ -328,7 +392,7 @@ class SnakeView @JvmOverloads constructor(
             GameState.OVER -> resources.getString(R.string.game_over) to resources.getString(R.string.tap_restart)
             GameState.RUNNING -> return
         }
-        overlayPaint.color = 0xB30A0E14.toInt()
+        overlayPaint.color = 0xCCF7F8EC.toInt()
         c.drawRect(viewRect, overlayPaint)
         val cx = width / 2f
         val cy = height / 2f
@@ -343,4 +407,19 @@ class SnakeView @JvmOverloads constructor(
         val a = (alpha.coerceIn(0f, 1f) * 255).toInt()
         return (a shl 24) or (argb and 0x00FFFFFF)
     }
+
+    private fun blendColor(start: Int, end: Int, amount: Float): Int {
+        val t = amount.coerceIn(0f, 1f)
+        val sr = (start shr 16) and 0xFF
+        val sg = (start shr 8) and 0xFF
+        val sb = start and 0xFF
+        val er = (end shr 16) and 0xFF
+        val eg = (end shr 8) and 0xFF
+        val eb = end and 0xFF
+        val r = (sr + (er - sr) * t).toInt()
+        val g = (sg + (eg - sg) * t).toInt()
+        val b = (sb + (eb - sb) * t).toInt()
+        return 0xFF000000.toInt() or (r shl 16) or (g shl 8) or b
+    }
+
 }

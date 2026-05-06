@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg_top">#0A0E14</color>
-    <color name="bg_bottom">#131826</color>
-    <color name="surface">#0F1320</color>
-    <color name="surface_alt">#161B26</color>
-    <color name="text_primary">#F2F4F8</color>
-    <color name="text_secondary">#9AA3B2</color>
-    <color name="accent">#4ADE80</color>
-    <color name="accent_bright">#7CFFB2</color>
-    <color name="food">#F472B6</color>
-    <color name="chip_fill">#1FFFFFFF</color>
-    <color name="chip_stroke">#26FFFFFF</color>
-    <color name="icon_btn_fill">#1FFFFFFF</color>
+    <color name="bg_top">#F9FAEF</color>
+    <color name="bg_bottom">#F5F7E9</color>
+    <color name="surface">#FAFAF2</color>
+    <color name="surface_alt">#F4F6EA</color>
+    <color name="text_primary">#14211C</color>
+    <color name="text_secondary">#6D746E</color>
+    <color name="accent">#006A45</color>
+    <color name="accent_bright">#81F0BF</color>
+    <color name="accent_blue">#16506C</color>
+    <color name="food">#C91822</color>
+    <color name="chip_fill">#FAFAF2</color>
+    <color name="chip_stroke">#E8EBDE</color>
+    <color name="icon_btn_fill">#FAFAF2</color>
+    <color name="grid_dot">#D9DEC9</color>
 </resources>
