@@ -10,13 +10,25 @@ import kotlin.random.Random
 
 enum class GameState { READY, RUNNING, PAUSED, OVER }
 
+enum class FoodKind { NORMAL, SHIELD }
+
+/** A single food on the field. colorIndex is into the renderer's palette;
+ *  -1 for SHIELD foods. pulseOffset desyncs the breathing animation. */
+data class FoodItem(
+    val x: Float,
+    val y: Float,
+    val kind: FoodKind,
+    val colorIndex: Int,
+    val pulseOffset: Float,
+)
+
 /** Bouncing +N (or shield burst when value < 0) marker the renderer animates. */
 data class ScorePopup(val x: Float, val y: Float, val value: Int, val spawnTime: Float)
 
 /**
  * Continuous (non-grid) snake physics with time-based dash / shield /
- * combo systems. The view feeds in real dt seconds so cooldown timers
- * track wall clock instead of variable frame rate.
+ * combo systems and a multi-food field. The view feeds in real dt
+ * seconds so cooldown timers track wall clock instead of frame rate.
  */
 class GameLogic(density: Float, private val random: Random = Random.Default) {
 
@@ -41,10 +53,11 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
     private var targetHeading: Float = heading
     private var hasTarget: Boolean = false
 
-    var foodX: Float = 0f; private set
-    var foodY: Float = 0f; private set
-    /** True when the next food on the field is a shield power-up rather than a normal orb. */
-    var foodIsShield: Boolean = false; private set
+    /** Foods currently on the field (read-only view for the renderer). */
+    val foods: MutableList<FoodItem> = mutableListOf()
+    /** How many color slots the renderer's food palette has. */
+    val foodPaletteSize: Int = 4
+    private val targetNormalFoods: Int = 3
 
     var score: Int = 0; private set
     var state: GameState = GameState.READY; private set
@@ -53,7 +66,6 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
     private var sized: Boolean = false
 
     // ---------- time-based state ----------
-    /** Wall-clock-ish time accumulator since reset() (seconds). */
     var time: Float = 0f; private set
 
     private var dashEndTime: Float = -1f
@@ -78,7 +90,6 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
     // ---------- queries ----------
     val isDashing: Boolean get() = time < dashEndTime
     val dashReady: Boolean get() = time >= dashCooldownUntil
-    /** 0 = just used, 1 = ready. */
     val dashCooldownProgress: Float get() {
         if (dashReady) return 1f
         val total = dashDuration + dashCooldown
@@ -104,6 +115,7 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
         if (!sized) return
         trail.clear()
         popups.clear()
+        foods.clear()
         val landscape = width >= height
         val n = (initialBodyLength / sampleSpacing).toInt()
         if (landscape) {
@@ -133,8 +145,7 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
         lastFoodEatTime = -100f
         combo = 0
         normalFoodsSinceShield = 0
-        foodIsShield = false
-        spawnFood()
+        replenishFoods()
     }
 
     fun start() {
@@ -155,7 +166,6 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
         hasTarget = false
     }
 
-    /** Returns true if a dash actually started this call. */
     fun triggerDash(): Boolean {
         if (state != GameState.RUNNING) return false
         if (!dashReady) return false
@@ -172,7 +182,6 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
             var delta = targetHeading - heading
             while (delta > PI) delta -= 2f * PI.toFloat()
             while (delta < -PI) delta += 2f * PI.toFloat()
-            // dashing widens the turn rate slightly so the boost isn't unsteerable
             val turnRate = if (isDashing) maxTurnRate * 1.35f else maxTurnRate
             heading += delta.coerceIn(-turnRate, turnRate)
         }
@@ -187,18 +196,25 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
             state = GameState.OVER
             return
         }
-        // shield clamps the head against the wall instead of ending the run
         val cx = nx.coerceIn(bodyRadius, width - bodyRadius)
         val cy = ny.coerceIn(bodyRadius, height - bodyRadius)
 
         trail.addLast(PointF(cx, cy))
         trimTrail()
 
-        val dxFood = cx - foodX
-        val dyFood = cy - foodY
-        val foodHit = bodyRadius + foodRadius - 2f
-        if (dxFood * dxFood + dyFood * dyFood < foodHit * foodHit) {
-            consumeFood()
+        // food collisions — at most one eaten per tick
+        val hit = bodyRadius + foodRadius - 2f
+        val hit2 = hit * hit
+        var ate: FoodItem? = null
+        for (f in foods) {
+            val dx = cx - f.x
+            val dy = cy - f.y
+            if (dx * dx + dy * dy < hit2) { ate = f; break }
+        }
+        if (ate != null) {
+            foods.remove(ate)
+            consumeFood(ate)
+            replenishFoods()
         }
 
         if (!isShielded && selfCollision()) {
@@ -213,23 +229,37 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
         }
     }
 
-    private fun consumeFood() {
-        if (foodIsShield) {
+    private fun consumeFood(f: FoodItem) {
+        if (f.kind == FoodKind.SHIELD) {
             shieldEndTime = time + shieldDuration
-            popups.addLast(ScorePopup(foodX, foodY, -1, time)) // -1 → shield burst marker
-            foodIsShield = false
+            popups.addLast(ScorePopup(f.x, f.y, -1, time))
             normalFoodsSinceShield = 0
         } else {
             combo = if (time - lastFoodEatTime <= comboWindow) (combo + 1).coerceAtMost(99) else 1
             lastFoodEatTime = time
             val gain = 10 + (combo - 1) * 5
             score += gain
-            popups.addLast(ScorePopup(foodX, foodY, gain, time))
+            popups.addLast(ScorePopup(f.x, f.y, gain, time))
             bodyLength += growthPerFood
             normalFoodsSinceShield += 1
-            if (normalFoodsSinceShield >= shieldFoodEvery) foodIsShield = true
         }
-        spawnFood()
+    }
+
+    private fun replenishFoods() {
+        // top up normal foods
+        while (foods.count { it.kind == FoodKind.NORMAL } < targetNormalFoods) {
+            val spot = findFoodSpot() ?: break
+            val ci = random.nextInt(foodPaletteSize)
+            val po = random.nextFloat() * 6.283f
+            foods.add(FoodItem(spot.first, spot.second, FoodKind.NORMAL, ci, po))
+        }
+        // shield slot — at most one on the field at a time
+        if (normalFoodsSinceShield >= shieldFoodEvery && foods.none { it.kind == FoodKind.SHIELD }) {
+            val spot = findFoodSpot()
+            if (spot != null) {
+                foods.add(FoodItem(spot.first, spot.second, FoodKind.SHIELD, -1, 0f))
+            }
+        }
     }
 
     private fun currentSpeed(): Float {
@@ -275,11 +305,13 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
         return false
     }
 
-    private fun spawnFood() {
+    private fun findFoodSpot(): Pair<Float, Float>? {
         val pad = foodRadius + bodyRadius + 6f
         val minD = bodyRadius + foodRadius + 8f
         val minD2 = minD * minD
-        repeat(60) {
+        val foodSep = foodRadius * 4f
+        val foodSep2 = foodSep * foodSep
+        repeat(80) {
             val x = pad + random.nextFloat() * (width - 2f * pad)
             val y = pad + random.nextFloat() * (height - 2f * pad)
             var ok = true
@@ -287,9 +319,14 @@ class GameLogic(density: Float, private val random: Random = Random.Default) {
                 val dx = p.x - x; val dy = p.y - y
                 if (dx * dx + dy * dy < minD2) { ok = false; break }
             }
-            if (ok) { foodX = x; foodY = y; return }
+            if (ok) {
+                for (other in foods) {
+                    val dx = other.x - x; val dy = other.y - y
+                    if (dx * dx + dy * dy < foodSep2) { ok = false; break }
+                }
+            }
+            if (ok) return Pair(x, y)
         }
-        foodX = width / 2f
-        foodY = height * 0.25f
+        return null
     }
 }

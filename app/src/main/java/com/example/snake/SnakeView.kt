@@ -36,6 +36,9 @@ class SnakeView @JvmOverloads constructor(
     private val density = resources.displayMetrics.density
     private val game = GameLogic(density)
 
+    /** Active snake skin. Replace via the property; the next frame picks it up. */
+    var skin: SnakeSkin = SnakeSkin.MINT
+
     val state: GameState get() = game.state
     val score: Int get() = game.score
     val length: Int get() = game.trail.size
@@ -100,7 +103,6 @@ class SnakeView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
-    /** Dedicated paint for HUD/popup text so we don't clobber title/sub state mid-frame. */
     private val hudTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
@@ -117,6 +119,7 @@ class SnakeView @JvmOverloads constructor(
     private val tonguePath = Path()
     private val boltPath = Path()
     private val shieldIconPath = Path()
+    private val crownPath = Path()
 
     init {
         isClickable = true
@@ -184,7 +187,6 @@ class SnakeView @JvmOverloads constructor(
             GameState.READY, GameState.PAUSED -> game.start()
             GameState.RUNNING -> {}
         }
-        // tap on dash button → trigger dash, do not engage joystick
         if (!wasOver && game.state == GameState.RUNNING && touchInDash(x, y)) {
             game.triggerDash()
             performClick()
@@ -269,7 +271,7 @@ class SnakeView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         drawBackground(canvas)
         drawTrailParticles(canvas)
-        drawFood(canvas)
+        drawFoods(canvas)
         drawSnake(canvas)
         drawScorePopups(canvas)
         drawComboBanner(canvas)
@@ -331,37 +333,40 @@ class SnakeView @JvmOverloads constructor(
         c.drawRect(0f, 0f, canvasWidth, canvasHeight, glowPaint)
     }
 
-    /** Apricot orb for normal food, blue shield orb when foodIsShield is set. */
-    private fun drawFood(c: Canvas) {
-        val pulse = 1f + 0.08f * sin(timeSeconds * 4f)
-        val r = game.foodRadius * pulse
-        val x = game.foodX
-        val y = game.foodY
+    /** All foods on the field — multi-color normals + occasional shield orb. */
+    private fun drawFoods(c: Canvas) {
+        for (f in game.foods) {
+            val pulse = 1f + 0.08f * sin(timeSeconds * 4f + f.pulseOffset)
+            val r = game.foodRadius * pulse
+            val x = f.x; val y = f.y
 
-        if (game.foodIsShield) {
-            fillPaint.color = colorAlpha(COLOR_SHIELD_GLOW, 0.20f)
-            c.drawCircle(x, y, r * 2.6f, fillPaint)
-            fillPaint.color = colorAlpha(COLOR_SHIELD_GLOW, 0.34f)
-            c.drawCircle(x, y, r * 1.6f, fillPaint)
-            fillPaint.color = COLOR_SHIELD
-            c.drawCircle(x, y, r, fillPaint)
-            fillPaint.color = colorAlpha(Color.WHITE, 0.7f)
-            c.drawCircle(x - r * 0.3f, y - r * 0.35f, r * 0.32f, fillPaint)
-            // shield ring inside
-            pathPaint.style = Paint.Style.STROKE
-            pathPaint.strokeWidth = dp(1.4f)
-            pathPaint.color = colorAlpha(Color.WHITE, 0.7f)
-            buildShieldIcon(shieldIconPath, x, y, r * 0.55f)
-            c.drawPath(shieldIconPath, pathPaint)
-        } else {
-            fillPaint.color = colorAlpha(COLOR_FOOD_GLOW, 0.18f)
-            c.drawCircle(x, y, r * 2.4f, fillPaint)
-            fillPaint.color = colorAlpha(COLOR_FOOD_GLOW, 0.32f)
-            c.drawCircle(x, y, r * 1.5f, fillPaint)
-            fillPaint.color = COLOR_FOOD
-            c.drawCircle(x, y, r, fillPaint)
-            fillPaint.color = colorAlpha(Color.WHITE, 0.7f)
-            c.drawCircle(x - r * 0.3f, y - r * 0.35f, r * 0.32f, fillPaint)
+            if (f.kind == FoodKind.SHIELD) {
+                fillPaint.color = colorAlpha(COLOR_SHIELD_GLOW, 0.20f)
+                c.drawCircle(x, y, r * 2.6f, fillPaint)
+                fillPaint.color = colorAlpha(COLOR_SHIELD_GLOW, 0.34f)
+                c.drawCircle(x, y, r * 1.6f, fillPaint)
+                fillPaint.color = COLOR_SHIELD
+                c.drawCircle(x, y, r, fillPaint)
+                fillPaint.color = colorAlpha(Color.WHITE, 0.7f)
+                c.drawCircle(x - r * 0.3f, y - r * 0.35f, r * 0.32f, fillPaint)
+                pathPaint.style = Paint.Style.STROKE
+                pathPaint.strokeWidth = dp(1.4f)
+                pathPaint.color = colorAlpha(Color.WHITE, 0.7f)
+                buildShieldIcon(shieldIconPath, x, y, r * 0.55f)
+                c.drawPath(shieldIconPath, pathPaint)
+            } else {
+                val idx = f.colorIndex.coerceIn(0, FOOD_PALETTE.size - 1)
+                val color = FOOD_PALETTE[idx][0]
+                val glow = FOOD_PALETTE[idx][1]
+                fillPaint.color = colorAlpha(glow, 0.18f)
+                c.drawCircle(x, y, r * 2.4f, fillPaint)
+                fillPaint.color = colorAlpha(glow, 0.34f)
+                c.drawCircle(x, y, r * 1.5f, fillPaint)
+                fillPaint.color = color
+                c.drawCircle(x, y, r, fillPaint)
+                fillPaint.color = colorAlpha(Color.WHITE, 0.72f)
+                c.drawCircle(x - r * 0.3f, y - r * 0.35f, r * 0.32f, fillPaint)
+            }
         }
     }
 
@@ -379,6 +384,7 @@ class SnakeView @JvmOverloads constructor(
         val particles = if (game.isDashing) 11 else 7
         val baseR = game.bodyRadius * (if (game.isDashing) 0.55f else 0.42f)
         val step = game.bodyRadius * 1.2f
+        val color = skin.tailColor
         for (i in 0 until particles) {
             val k = i / particles.toFloat()
             val drift = 0.4f * sin(timeSeconds * 1.6f + i * 0.7f)
@@ -388,7 +394,7 @@ class SnakeView @JvmOverloads constructor(
             val py = tail.y + ty * (step + i * step) + oy
             val rr = baseR * (1f - k * 0.85f)
             val alpha = 0.55f * (1f - k * 0.95f)
-            fillPaint.color = colorAlpha(COLOR_BODY_TAIL, alpha)
+            fillPaint.color = colorAlpha(color, alpha)
             c.drawCircle(px, py, rr, fillPaint)
         }
     }
@@ -413,7 +419,7 @@ class SnakeView @JvmOverloads constructor(
             val t = i / (n - 1f)
             val tFromHead = 1f - t
             val radius = segmentRadius * (0.55f + 0.45f * t)
-            val color = bodyColorAt(tFromHead)
+            val color = skin.bodyColorAt(tFromHead)
 
             fillPaint.color = colorAlpha(color, 0.16f)
             c.drawCircle(p.x, p.y, radius * 1.5f, fillPaint)
@@ -428,23 +434,14 @@ class SnakeView @JvmOverloads constructor(
         val head = pts[n - 1]
         drawShieldAura(c, head.x, head.y, segmentRadius * 1.15f)
         drawSnakeHead(c, head.x, head.y, game.heading, segmentRadius * 1.15f)
-    }
-
-    private fun bodyColorAt(t: Float): Int {
-        return when {
-            t < 0.4f -> COLOR_BODY_TOP
-            t < 0.75f -> COLOR_BODY_MID
-            else -> COLOR_BODY_TAIL
-        }
+        if (skin.hasAimDots) drawAimDots(c, head.x, head.y, game.heading, segmentRadius * 1.15f)
     }
 
     private fun drawShieldAura(c: Canvas, hx: Float, hy: Float, headR: Float) {
         if (!game.isShielded) return
         val pulse = 0.5f + 0.5f * sin(timeSeconds * 4f)
-        // outer glow
         fillPaint.color = colorAlpha(COLOR_SHIELD, 0.10f + 0.08f * pulse)
         c.drawCircle(hx, hy, headR + dp(16f), fillPaint)
-        // dashed-ish ring
         pathPaint.style = Paint.Style.STROKE
         pathPaint.strokeWidth = dp(1.6f)
         pathPaint.color = colorAlpha(COLOR_SHIELD, 0.55f)
@@ -458,19 +455,21 @@ class SnakeView @JvmOverloads constructor(
         val cosH = cos(dir); val sinH = sin(dir)
         val perpX = -sinH; val perpY = cosH
 
-        fillPaint.color = COLOR_HEAD
+        fillPaint.color = skin.head
         c.drawCircle(x, y, r, fillPaint)
 
-        val cheekFwd = r * 0.08f
-        val cheekSide = r * 0.62f
-        val cheekR = r * 0.18f
-        val cx1 = x + cosH * cheekFwd + perpX * cheekSide
-        val cy1 = y + sinH * cheekFwd + perpY * cheekSide
-        val cx2 = x + cosH * cheekFwd - perpX * cheekSide
-        val cy2 = y + sinH * cheekFwd - perpY * cheekSide
-        fillPaint.color = colorAlpha(COLOR_CHEEK, 0.55f)
-        c.drawCircle(cx1, cy1, cheekR, fillPaint)
-        c.drawCircle(cx2, cy2, cheekR, fillPaint)
+        if (skin.showCheek) {
+            val cheekFwd = r * 0.08f
+            val cheekSide = r * 0.62f
+            val cheekR = r * 0.18f
+            val cx1 = x + cosH * cheekFwd + perpX * cheekSide
+            val cy1 = y + sinH * cheekFwd + perpY * cheekSide
+            val cx2 = x + cosH * cheekFwd - perpX * cheekSide
+            val cy2 = y + sinH * cheekFwd - perpY * cheekSide
+            fillPaint.color = colorAlpha(skin.cheek, 0.55f)
+            c.drawCircle(cx1, cy1, cheekR, fillPaint)
+            c.drawCircle(cx2, cy2, cheekR, fillPaint)
+        }
 
         val eyeFwd = r * 0.32f
         val eyeSide = r * 0.45f
@@ -500,6 +499,7 @@ class SnakeView @JvmOverloads constructor(
         c.drawCircle(px1 - cosH * hlOff - perpX * hlOff, py1 - sinH * hlOff - perpY * hlOff, hl, fillPaint)
         c.drawCircle(px2 - cosH * hlOff - perpX * hlOff, py2 - sinH * hlOff - perpY * hlOff, hl, fillPaint)
 
+        // tongue
         val tipFwd = r * 1.05f
         val tx = x + cosH * tipFwd
         val ty = y + sinH * tipFwd
@@ -511,33 +511,72 @@ class SnakeView @JvmOverloads constructor(
         tonguePath.moveTo(tx, ty)
         tonguePath.lineTo(tx + cosH * tlen - perpX * tspread, ty + sinH * tlen - perpY * tspread)
         pathPaint.style = Paint.Style.STROKE
-        pathPaint.color = COLOR_TONGUE
+        pathPaint.color = skin.tongue
         pathPaint.strokeWidth = r * 0.10f
         pathPaint.strokeCap = Paint.Cap.ROUND
         c.drawPath(tonguePath, pathPaint)
+
+        if (skin.hasCrown) drawCrown(c, x, y, dir, r)
     }
 
-    /** Bouncing +N popups at where food was eaten, plus a ring burst for shield pickups. */
+    /** Tiny zigzag crown above the head. Drawn world-upright (matches the
+     * design's translate-only transform) — does not rotate with heading. */
+    private fun drawCrown(c: Canvas, x: Float, y: Float, dir: Float, r: Float) {
+        // Anchor crown perpendicular to body direction, "above" the snake
+        val cxC = x + sin(dir) * (r + dp(2f))
+        val cyC = y - cos(dir) * (r + dp(2f))
+        // Path points: M -8 4 L -6 -4 L -2 0 L 0 -6 L 2 0 L 6 -4 L 8 4 Z
+        // scaled so 8 units ≈ r * 0.85 (slightly smaller than head)
+        val u = r * 0.85f / 8f
+        crownPath.reset()
+        crownPath.moveTo(cxC - 8 * u, cyC + 4 * u)
+        crownPath.lineTo(cxC - 6 * u, cyC - 4 * u)
+        crownPath.lineTo(cxC - 2 * u, cyC)
+        crownPath.lineTo(cxC,         cyC - 6 * u)
+        crownPath.lineTo(cxC + 2 * u, cyC)
+        crownPath.lineTo(cxC + 6 * u, cyC - 4 * u)
+        crownPath.lineTo(cxC + 8 * u, cyC + 4 * u)
+        crownPath.close()
+
+        fillPaint.color = COLOR_CROWN
+        c.drawPath(crownPath, fillPaint)
+        pathPaint.style = Paint.Style.STROKE
+        pathPaint.strokeWidth = dp(0.8f)
+        pathPaint.color = COLOR_CROWN_EDGE
+        c.drawPath(crownPath, pathPaint)
+    }
+
+    /** A series of fading dots leading from the head toward the heading direction. */
+    private fun drawAimDots(c: Canvas, x: Float, y: Float, dir: Float, r: Float) {
+        val cosH = cos(dir); val sinH = sin(dir)
+        for (i in 1..4) {
+            val d = r + dp(14f) + i * dp(10f)
+            val ax = x + cosH * d
+            val ay = y + sinH * d
+            val rr = (dp(2.4f) - i * dp(0.4f)).coerceAtLeast(dp(0.6f))
+            fillPaint.color = colorAlpha(skin.accent, 0.65f - i * 0.12f)
+            c.drawCircle(ax, ay, rr, fillPaint)
+        }
+    }
+
     private fun drawScorePopups(c: Canvas) {
         for (popup in game.popups) {
             val age = game.time - popup.spawnTime
             val t = (age / game.popupDuration).coerceIn(0f, 1f)
-            val ease = 1f - (1f - t) * (1f - t)              // ease-out
+            val ease = 1f - (1f - t) * (1f - t)
             val rise = ease * dp(38f)
             val alpha = (1f - t * t).coerceAtLeast(0f)
             if (popup.value > 0) {
-                val scale = 0.85f + (1f - t) * 0.4f          // pop bigger then settle
+                val scale = 0.85f + (1f - t) * 0.4f
                 val text = "+${popup.value}"
-                // 1) white outline (stroke only)
                 hudStrokePaint.style = Paint.Style.STROKE
                 hudStrokePaint.strokeWidth = dp(3f)
                 hudStrokePaint.textSize = dp(20f) * scale
                 hudStrokePaint.color = colorAlpha(Color.WHITE, alpha)
                 c.drawText(text, popup.x, popup.y - rise, hudStrokePaint)
-                // 2) accent fill on top
                 hudTextPaint.style = Paint.Style.FILL
                 hudTextPaint.textSize = dp(20f) * scale
-                hudTextPaint.color = colorAlpha(COLOR_ACCENT_DEEP, alpha)
+                hudTextPaint.color = colorAlpha(skin.accentDeep, alpha)
                 c.drawText(text, popup.x, popup.y - rise, hudTextPaint)
             } else {
                 pathPaint.style = Paint.Style.STROKE
@@ -551,7 +590,6 @@ class SnakeView @JvmOverloads constructor(
         }
     }
 
-    /** Frosted pill at top-center showing live combo multiplier; fades with time-since-eat. */
     private fun drawComboBanner(c: Canvas) {
         if (game.combo < 2) return
         val freshness = (game.comboTimeRemaining / game.comboWindow).coerceIn(0f, 1f)
@@ -563,7 +601,6 @@ class SnakeView @JvmOverloads constructor(
         hudTextPaint.letterSpacing = 0.14f
         val tw = hudTextPaint.measureText(text)
         hudTextPaint.letterSpacing = 0f
-        hudTextPaint.textSize = dp(11f)
         val bw = hudTextPaint.measureText(bonusText)
 
         val cx = width / 2f
@@ -580,26 +617,22 @@ class SnakeView @JvmOverloads constructor(
         pathPaint.color = colorAlpha(COLOR_TEXT, 0.10f)
         c.drawRoundRect(rect, r, r, pathPaint)
 
-        // sparkle dot on the left
-        fillPaint.color = colorAlpha(COLOR_ACCENT, alpha)
+        fillPaint.color = colorAlpha(skin.accent, alpha)
         c.drawCircle(rect.left + dp(14f), cy, dp(2.6f), fillPaint)
 
-        // combo text
         hudTextPaint.color = colorAlpha(COLOR_TEXT, alpha)
         hudTextPaint.letterSpacing = 0.14f
         hudTextPaint.textAlign = Paint.Align.LEFT
         c.drawText(text, rect.left + dp(22f), cy + dp(4f), hudTextPaint)
         hudTextPaint.letterSpacing = 0f
 
-        // bonus on the right
-        hudTextPaint.color = colorAlpha(COLOR_ACCENT_DEEP, alpha)
+        hudTextPaint.color = colorAlpha(skin.accentDeep, alpha)
         hudTextPaint.textAlign = Paint.Align.RIGHT
         c.drawText(bonusText, rect.right - dp(14f), cy + dp(4f), hudTextPaint)
 
         hudTextPaint.textAlign = Paint.Align.CENTER
     }
 
-    /** Shield countdown pill, top-right under the pause button. */
     private fun drawShieldPill(c: Canvas) {
         if (!game.isShielded) return
         val text = String.format("%.1fs", game.shieldRemaining)
@@ -622,20 +655,17 @@ class SnakeView @JvmOverloads constructor(
         pathPaint.color = colorAlpha(COLOR_SHIELD, 0.35f)
         c.drawRoundRect(rect, r, r, pathPaint)
 
-        // shield icon on the left
         val iconCx = rect.left + dp(14f)
         val iconCy = rect.centerY()
         buildShieldIcon(shieldIconPath, iconCx, iconCy, dp(6.5f))
         fillPaint.color = colorAlpha(COLOR_SHIELD, 0.95f)
         c.drawPath(shieldIconPath, fillPaint)
 
-        // remaining seconds
         hudTextPaint.color = COLOR_TEXT
         c.drawText(text, iconCx + dp(11f), rect.centerY() + dp(4f), hudTextPaint)
         hudTextPaint.textAlign = Paint.Align.CENTER
     }
 
-    /** Bottom-left dash button. Charging ring tracks cooldown; flash when ready. */
     private fun drawDashButton(c: Canvas) {
         val cx = dashCenterX()
         val cy = dashCenterY()
@@ -643,45 +673,38 @@ class SnakeView @JvmOverloads constructor(
         val dashing = game.isDashing
         val progress = game.dashCooldownProgress
 
-        // backing ring
         pathPaint.style = Paint.Style.STROKE
         pathPaint.strokeWidth = dp(2.8f)
         pathPaint.color = colorAlpha(COLOR_TEXT, 0.10f)
         c.drawCircle(cx, cy, dashRingR, pathPaint)
 
-        // cooldown / ready arc
         arcRect.set(cx - dashRingR, cy - dashRingR, cx + dashRingR, cy + dashRingR)
         if (dashing) {
             val pulse = 0.5f + 0.5f * sin(timeSeconds * 12f)
-            pathPaint.color = colorAlpha(COLOR_FOOD, 0.6f + 0.4f * pulse)
+            pathPaint.color = colorAlpha(COLOR_DASH, 0.6f + 0.4f * pulse)
             c.drawCircle(cx, cy, dashRingR, pathPaint)
         } else {
             val sweep = 360f * progress
-            pathPaint.color = if (ready) COLOR_FOOD else colorAlpha(COLOR_FOOD, 0.85f)
+            pathPaint.color = if (ready) COLOR_DASH else colorAlpha(COLOR_DASH, 0.85f)
             c.drawArc(arcRect, -90f, sweep, false, pathPaint)
         }
 
-        // shadow
-        fillPaint.color = colorAlpha(COLOR_FOOD, if (ready) 0.4f else 0.25f)
+        fillPaint.color = colorAlpha(COLOR_DASH, if (ready) 0.4f else 0.25f)
         c.drawCircle(cx, cy + dp(3f), dashOuterR, fillPaint)
 
-        // body
         val bodyAlpha = if (ready) 1f else 0.7f
-        fillPaint.color = colorAlpha(COLOR_FOOD, bodyAlpha)
+        fillPaint.color = colorAlpha(COLOR_DASH, bodyAlpha)
         c.drawCircle(cx, cy, dashOuterR, fillPaint)
 
-        // bolt icon
         buildBoltPath(boltPath, cx, cy - dp(2f), dp(13f))
         fillPaint.color = colorAlpha(Color.WHITE, if (ready) 1f else 0.85f)
         c.drawPath(boltPath, fillPaint)
 
-        // 冲刺 label under the bolt
         hudTextPaint.textAlign = Paint.Align.CENTER
         hudTextPaint.textSize = dp(9f)
         hudTextPaint.color = colorAlpha(Color.WHITE, 0.85f)
         c.drawText("冲刺", cx, cy + dp(15f), hudTextPaint)
 
-        // ready badge — small "GO" chip at upper-right
         if (ready && !dashing) {
             val bx = cx + dashOuterR * 0.78f
             val by = cy - dashOuterR * 0.78f
@@ -744,15 +767,15 @@ class SnakeView @JvmOverloads constructor(
 
         if (joystickActive && mag > 1f) {
             pathPaint.strokeWidth = dp(3f)
-            pathPaint.color = colorAlpha(COLOR_ACCENT, 0.55f * a)
+            pathPaint.color = colorAlpha(skin.accent, 0.55f * a)
             c.drawLine(baseX, baseY, baseX + dx, baseY + dy, pathPaint)
         }
 
         val knobX = baseX + dx
         val knobY = baseY + dy
-        fillPaint.color = colorAlpha(COLOR_ACCENT, 0.35f * a)
+        fillPaint.color = colorAlpha(skin.accent, 0.35f * a)
         c.drawCircle(knobX, knobY + dp(2f), stickRadius * 1.05f, fillPaint)
-        fillPaint.color = colorAlpha(COLOR_ACCENT, a)
+        fillPaint.color = colorAlpha(skin.accent, a)
         c.drawCircle(knobX, knobY, stickRadius, fillPaint)
         fillPaint.color = colorAlpha(Color.WHITE, 0.18f * a)
         c.drawCircle(knobX - stickRadius * 0.3f, knobY - stickRadius * 0.35f, stickRadius * 0.32f, fillPaint)
@@ -823,22 +846,25 @@ class SnakeView @JvmOverloads constructor(
         private const val COLOR_SURFACE = 0xFFFFFDF4.toInt()
         private const val COLOR_GRID = 0x14465037
         private const val COLOR_GRID_SUB = 0x09465037
-
-        private const val COLOR_HEAD = 0xFF9ED6A2.toInt()
-        private const val COLOR_BODY_TOP = 0xFF8ACF91.toInt()
-        private const val COLOR_BODY_MID = 0xFF74C084.toInt()
-        private const val COLOR_BODY_TAIL = 0xFF5AA872.toInt()
-        private const val COLOR_CHEEK = 0xFFF4A8B4.toInt()
         private const val COLOR_EYE = 0xFF241C14.toInt()
-        private const val COLOR_TONGUE = 0xFFE57F8A.toInt()
 
-        private const val COLOR_FOOD = 0xFFF4A261.toInt()
-        private const val COLOR_FOOD_GLOW = 0xFFFCD7A8.toInt()
+        // Apricot accent reserved for the dash button (semantic: boost / lightning).
+        private const val COLOR_DASH = 0xFFF4A261.toInt()
 
+        // Shield is a unified blue regardless of skin.
         private const val COLOR_SHIELD = 0xFF7FB7E8.toInt()
         private const val COLOR_SHIELD_GLOW = 0xFFBFD9EE.toInt()
 
-        private const val COLOR_ACCENT = 0xFF7AAB86.toInt()
-        private const val COLOR_ACCENT_DEEP = 0xFF4D8C6B.toInt()
+        // Crown for the candy skin.
+        private const val COLOR_CROWN = 0xFFFFD166.toInt()
+        private const val COLOR_CROWN_EDGE = 0xFFE8A23C.toInt()
+
+        // Variant B candy palette: each entry is [main, glow].
+        private val FOOD_PALETTE: Array<IntArray> = arrayOf(
+            intArrayOf(0xFFFF6B9D.toInt(), 0xFFFFB8D2.toInt()),  // pink
+            intArrayOf(0xFF7BD3C1.toInt(), 0xFFBFEAE0.toInt()),  // mint cyan
+            intArrayOf(0xFFFFD166.toInt(), 0xFFFFE9AA.toInt()),  // butter
+            intArrayOf(0xFF9BB6E3.toInt(), 0xFFCAD9EE.toInt()),  // periwinkle
+        )
     }
 }

@@ -1,7 +1,11 @@
 package com.example.snake
 
 import android.content.Context
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.os.Bundle
+import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -17,6 +21,8 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
     private lateinit var binding: ActivityMainBinding
     private var bestScore: Int = 0
     private val scoreFormat = NumberFormat.getIntegerInstance(Locale.US)
+    private val density: Float by lazy { resources.displayMetrics.density }
+    private var activeSkinKey: String = SnakeSkin.MINT.key
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,20 +35,73 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller.hide(WindowInsetsCompat.Type.systemBars())
 
-        // Push play area + floating UI into the safe area defined by display
-        // cutouts. We deliberately ignore the system-bar insets so transient
-        // swipes-to-show don't reflow the layout mid-game.
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
             val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
             v.updatePadding(cutout.left, cutout.top, cutout.right, cutout.bottom)
             insets
         }
 
-        bestScore = getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_BEST, 0)
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        bestScore = prefs.getInt(KEY_BEST, 0)
         binding.bestText.text = formatScore(bestScore)
 
         binding.snakeView.listener = this
         binding.settingsBtn.setOnClickListener { binding.snakeView.togglePause() }
+
+        // Wire skin selector
+        val saved = prefs.getString(KEY_SKIN, SnakeSkin.MINT.key)
+        applySkin(SnakeSkin.byKey(saved), persist = false)
+        bindSkinSwatch(binding.skinA, SnakeSkin.MINT)
+        bindSkinSwatch(binding.skinB, SnakeSkin.CANDY)
+        bindSkinSwatch(binding.skinC, SnakeSkin.PAPER)
+    }
+
+    private fun bindSkinSwatch(view: View, skin: SnakeSkin) {
+        view.setOnClickListener { applySkin(skin) }
+        renderSwatch(view, skin)
+    }
+
+    private fun applySkin(skin: SnakeSkin, persist: Boolean = true) {
+        activeSkinKey = skin.key
+        binding.snakeView.skin = skin
+        if (persist) {
+            getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_SKIN, skin.key)
+                .apply()
+        }
+        // re-render all swatches so the active ring follows the selection
+        renderSwatch(binding.skinA, SnakeSkin.MINT)
+        renderSwatch(binding.skinB, SnakeSkin.CANDY)
+        renderSwatch(binding.skinC, SnakeSkin.PAPER)
+    }
+
+    private fun renderSwatch(view: View, skin: SnakeSkin) {
+        val selected = skin.key == activeSkinKey
+        view.background = makeSwatch(skin.swatch, selected)
+    }
+
+    /** A flat colored circle, with an outer ring + inner inset when selected. */
+    private fun makeSwatch(color: Int, selected: Boolean): Drawable {
+        if (!selected) {
+            return GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+            }
+        }
+        val outer = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setStroke((density * 2f).toInt(), 0xFF2C3024.toInt())
+            setColor(0)
+        }
+        val inner = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color)
+        }
+        val pad = (density * 4f).toInt()
+        return LayerDrawable(arrayOf(outer, inner)).also {
+            it.setLayerInset(1, pad, pad, pad, pad)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -77,5 +136,6 @@ class MainActivity : AppCompatActivity(), SnakeView.Listener {
     companion object {
         private const val PREFS = "snake_prefs"
         private const val KEY_BEST = "best_score"
+        private const val KEY_SKIN = "skin_key"
     }
 }

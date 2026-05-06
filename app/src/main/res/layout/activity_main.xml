@@ -111,6 +111,44 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Skin selector: 3 swatches under the score card -->
+    <LinearLayout
+        android:id="@+id/skinSelector"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/scoreCard">
+
+        <View
+            android:id="@+id/skinA"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginEnd="10dp"
+            android:clickable="true"
+            android:contentDescription="@string/skin_mint"
+            android:focusable="true" />
+
+        <View
+            android:id="@+id/skinB"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginEnd="10dp"
+            android:clickable="true"
+            android:contentDescription="@string/skin_candy"
+            android:focusable="true" />
+
+        <View
+            android:id="@+id/skinC"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:clickable="true"
+            android:contentDescription="@string/skin_paper"
+            android:focusable="true" />
+    </LinearLayout>
+
     <!-- Top-right: pause/settings as a circular frosted button -->
     <ImageButton
         android:id="@+id/settingsBtn"
